@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<link rel="icon" type="image/png" href="logo.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>ATTEF CENTER — سنتر عاطف | نظام إدارة السنتر التعليمي</title>
+<meta name="theme-color" content="#1a1c22">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+
+<link rel="manifest" href="manifest.json">
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- QR -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js" defer></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+<!-- Export libs -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+</head>
+<body>
+
+<!-- ============ METALLIC 3D BACKGROUND ============ -->
+<div class="bg-fx" aria-hidden="true">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="shine-sweep"></div>
+</div>
+
+<!-- ============ SPLASH ============ -->
+<div id="splashScreen" class="splash">
+  <div class="orbit-loader">
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
+    <img src="logo.png" alt="Logo" class="splash-logo-img">
+  </div>
+  <h1 class="splash-title">ATTEF <span>CENTER</span></h1>
+  <p class="splash-sub">سنتر عاطف — نظام إدارة السنتر التعليمي</p>
+</div>
+
+<!-- ============ LOGIN ============ -->
+<div id="loginModal" class="modal-overlay">
+  <div class="glass-panel login-panel tilt">
+    <div class="panel-glow"></div>
+    <img src="logo.png" alt="Logo" class="login-logo-img">
+    <h1 class="login-brand">ATTEF <span>CENTER</span></h1>
+    <p class="login-brand-ar">سنتر عاطف</p>
+    <p class="sub">تسجيل الدخول إلى النظام</p>
+
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <div class="form-group">
+        <label>اسم المستخدم</label>
+        <input type="text" class="field" id="loginUsername" placeholder="اسم المستخدم" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور</label>
+        <input type="password" class="field" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <p id="loginError" class="error-text hidden">⚠ بيانات الدخول غير صحيحة</p>
+      <button type="submit" class="primary-btn login-submit">دخول</button>
+    </form>
+
+    <p class="hint">يتم التحقق من بيانات الدخول عبر قاعدة بيانات Supabase.</p>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app hidden">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside id="sidebar" class="sidebar glass-panel">
+    <div class="side-top">
+      <div class="side-brand">
+        <img src="logo.png" alt="Logo" class="side-logo-img">
+        <div class="brand-text side-only-expanded">
+          <h1>ATTEF <span>CENTER</span></h1>
+          <span class="brand-sub">سنتر عاطف</span>
+        </div>
+      </div>
+      <button id="sidebarToggle" class="collapse-btn" title="طي/فتح الشريط الجانبي">«</button>
+    </div>
+
+    <nav class="side-nav">
+      <button class="side-link active" data-page="dashboard" data-roles="admin"><span class="si">📊</span><span class="st side-only-expanded">لوحة التحكم</span></button>
+      <button class="side-link" data-page="students" data-roles="admin"><span class="si">🎓</span><span class="st side-only-expanded">شؤون الطلاب</span></button>
+      <button class="side-link" data-page="teachers" data-roles="admin"><span class="si">👨‍🏫</span><span class="st side-only-expanded">إدارة المدرسين</span></button>
+      <button class="side-link" data-page="groups" data-roles="admin"><span class="si">🏷️</span><span class="st side-only-expanded">المجموعات</span></button>
+      <button class="side-link" data-page="gradeLevels" data-roles="admin"><span class="si">📘</span><span class="st side-only-expanded">المراحل والمواد</span></button>
+      <button class="side-link" data-page="secretaries" data-roles="admin"><span class="si">🗂️</span><span class="st side-only-expanded">إدارة السكرتارية</span></button>
+      <button class="side-link" data-page="approvals" data-roles="admin"><span class="si">⏳</span><span class="st side-only-expanded">طابور الاعتماد</span><span class="side-badge" id="sideApprovalBadge">0</span></button>
+      <button class="side-link" data-page="finance" data-roles="admin"><span class="si">💰</span><span class="st side-only-expanded">التقارير المالية</span></button>
+      <button class="side-link" data-page="master" data-roles="admin"><span class="si">🗃️</span><span class="st side-only-expanded">الشيت المجمع</span></button>
+      <button class="side-link" data-page="reception" data-roles="secretary"><span class="si">🛎️</span><span class="st side-only-expanded">استقبال وحضور</span></button>
+      <button class="side-link" data-page="teacherPortal" data-roles="teacher"><span class="si">📝</span><span class="st side-only-expanded">لوحة المدرس</span></button>
+    </nav>
+
+    <div class="side-bottom">
+      <button id="themeToggleBtn" class="switch-btn" title="الوضع الليلي/النهاري">
+        <span class="switch-icon">🌙</span><span class="st side-only-expanded">الوضع الليلي</span>
+      </button>
+      <button id="logoutBtn" class="switch-btn logout-btn" title="خروج">
+        <span>🚪</span><span class="st side-only-expanded">تسجيل الخروج</span>
+      </button>
+    </div>
+  </aside>
+
+  <div id="sidebarBackdrop" class="sidebar-backdrop hidden"></div>
+
+  <!-- ===== MAIN AREA ===== -->
+  <div class="main-area">
+    <header class="topbar glass-panel">
+      <button id="mobileMenuBtn" class="icon-btn mobile-only">☰</button>
+      <div class="topbar-title">
+        <h2 id="pageTitle">لوحة التحكم</h2>
+        <span id="pageSubtitle" class="topbar-sub">نظرة عامة على السنتر</span>
+      </div>
+      <div class="topbar-right">
+        <span id="syncBadge" class="sync-pill online"><i class="dot"></i>متصل بقاعدة البيانات</span>
+        <div class="role-strip">
+          <span id="userRoleBadge" class="role-chip">—</span>
+          <span id="userNameLabel" class="user-name">—</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="pages-scroll">
+
+    <!-- ===== ADMIN: DASHBOARD ===== -->
+    <main id="page-dashboard" class="view page hidden">
+      <section class="stats-grid">
+        <div class="stat-card tilt shine stat-a">
+          <div class="stat-icon">👥</div>
+          <span class="stat-value" id="statTotalStudents">0</span>
+          <span class="stat-label">إجمالي الطلاب</span>
+        </div>
+        <div class="stat-card tilt shine stat-b">
+          <div class="stat-icon">🏷️</div>
+          <span class="stat-value" id="statActiveGroups">0</span>
+          <span class="stat-label">المجموعات النشطة</span>
+        </div>
+        <div class="stat-card tilt shine stat-c">
+          <div class="stat-icon">👨‍🏫</div>
+          <span class="stat-value" id="statTotalTeachers">0</span>
+          <span class="stat-label">المدرسون</span>
+        </div>
+        <div class="stat-card tilt shine stat-d">
+          <div class="stat-icon">🗂️</div>
+          <span class="stat-value" id="statTotalSecretaries">0</span>
+          <span class="stat-label">السكرتارية</span>
+        </div>
+        <div class="stat-card tilt shine stat-e">
+          <div class="stat-icon">⏳</div>
+          <span class="stat-value" id="statPendingApprovals">0</span>
+          <span class="stat-label">طابور الاعتماد</span>
+        </div>
+        <div class="stat-card tilt shine stat-f">
+          <div class="stat-icon">✅</div>
+          <span class="stat-value" id="statApprovedToday">0</span>
+          <span class="stat-label">مُعتمد اليوم</span>
+        </div>
+      </section>
+
+      <section class="finance-mini-grid">
+        <div class="finance-mini-card tilt shine profit">
+          <span class="fm-label">صافي الربح الحالي</span>
+          <span class="fm-value" id="dashNetProfit">0</span>
+          <span class="fm-sub">جنيه مصري</span>
+        </div>
+        <div class="finance-mini-card tilt shine collected">
+          <span class="fm-label">إجمالي المُحصَّل</span>
+          <span class="fm-value" id="dashCollected">0</span>
+          <span class="fm-sub">جنيه مصري</span>
+        </div>
+        <div class="finance-mini-card tilt shine outstanding">
+          <span class="fm-label">مستحقات لم تُحصَّل بعد</span>
+          <span class="fm-value" id="dashOutstanding">0</span>
+          <span class="fm-sub">جنيه مصري</span>
+        </div>
+      </section>
+
+      <section class="approvals-section">
+        <div class="section-header">
+          <h2>أحدث سجلات بانتظار الاعتماد</h2>
+          <button class="ghost-btn" data-goto="approvals">عرض الكل ←</button>
+        </div>
+        <div id="dashPendingPreview" class="approvals-grid"></div>
+        <div id="dashNoApprovals" class="empty-state hidden">
+          <span class="empty-emoji">🎉</span>
+          <p>لا توجد سجلات بانتظار الاعتماد</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== ADMIN: STUDENTS DIRECTORY ===== -->
+    <main id="page-students" class="view page hidden">
+      <section class="toolbar-row">
+        <div class="search-glass">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="studentsDirSearch" placeholder="ابحث بالاسم أو الكود..." autocomplete="off">
+        </div>
+        <select class="field select-filter" id="studentsDirGroupFilter"><option value="all">كل المجموعات</option></select>
+        <select class="field select-filter" id="studentsDirPayFilter">
+          <option value="all">كل حالات المديونية</option>
+          <option value="clear">لا يوجد مديونية</option>
+          <option value="debt">عليه مديونية</option>
+        </select>
+        <button id="addStudentBtn" class="primary-btn">➕ طالب جديد</button>
+      </section>
+
+      <section class="table-wrap glass-panel shine">
+        <table class="data-table" id="studentsDirTable">
+          <thead>
+            <tr>
+              <th>الطالب</th><th>الكود</th><th>الصف</th><th>المجموعات</th><th>هاتف ولي الأمر</th>
+              <th>المديونية الكلية</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="studentsDirBody"></tbody>
+        </table>
+        <div id="studentsDirEmpty" class="empty-state hidden">
+          <span class="empty-emoji">🛸</span><p>لا يوجد طلاب مطابقون</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== ADMIN: TEACHERS DIRECTORY ===== -->
+    <main id="page-teachers" class="view page hidden">
+      <section class="toolbar-row">
+        <h2 class="section-title-inline">قائمة المدرسين</h2>
+        <button id="addTeacherBtn" class="primary-btn">➕ إضافة مدرس</button>
+      </section>
+      <div id="teachersGrid" class="cards-grid"></div>
+      <div id="teachersEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا يوجد مدرسون بعد</p></div>
+    </main>
+
+    <!-- ===== ADMIN: GROUPS ===== -->
+    <main id="page-groups" class="view page hidden">
+      <section class="toolbar-row">
+        <h2 class="section-title-inline">قائمة المجموعات</h2>
+        <button id="addGroupBtn" class="primary-btn">➕ إنشاء مجموعة</button>
+      </section>
+      <div id="groupsGrid" class="cards-grid"></div>
+      <div id="groupsEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا يوجد مجموعات بعد</p></div>
+    </main>
+
+    <!-- ===== ADMIN: GRADE LEVELS & SUBJECTS ===== -->
+    <main id="page-gradeLevels" class="view page hidden">
+      <section class="toolbar-row">
+        <div class="search-glass" style="flex:1;">
+          <span class="search-icon">📘</span>
+          <input type="text" id="newGradeLevelName" placeholder="اسم سنة دراسية جديدة، مثال: أولى إعدادي" autocomplete="off">
+        </div>
+        <button id="addGradeLevelBtn" class="primary-btn">➕ إضافة سنة دراسية</button>
+      </section>
+      <div id="gradeLevelsList" class="cards-grid"></div>
+      <div id="gradeLevelsEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد سنوات دراسية بعد — أضف واحدة للبدء</p></div>
+    </main>
+
+    <!-- ===== ADMIN: SECRETARIES MANAGEMENT ===== -->
+    <main id="page-secretaries" class="view page hidden">
+      <section class="toolbar-row">
+        <h2 class="section-title-inline">حسابات السكرتارية</h2>
+        <button id="addSecretaryBtn" class="primary-btn">➕ إضافة سكرتير</button>
+      </section>
+      <div id="secretariesGrid" class="cards-grid"></div>
+      <div id="secretariesEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا يوجد سكرتارية بعد</p></div>
+    </main>
+
+    <!-- ===== ADMIN: APPROVALS ===== -->
+    <main id="page-approvals" class="view page hidden">
+      <section class="section-header">
+        <h2>طابور اعتماد السجلات <span class="side-badge" id="approvalsPageBadge">0</span></h2>
+        <button id="approveAllBtn" class="ghost-btn">اعتماد الكل</button>
+      </section>
+      <div id="approvalsList" class="approvals-grid"></div>
+      <div id="noApprovals" class="empty-state hidden">
+        <span class="empty-emoji">🎉</span>
+        <p>لا توجد سجلات بانتظار الاعتماد</p>
+      </div>
+    </main>
+
+    <!-- ===== ADMIN: FINANCE ===== -->
+    <main id="page-finance" class="view page hidden">
+      <section class="toolbar-row" id="financeFiltersRow">
+        <div class="form-group" style="margin-bottom:0;">
+          <label>المدرس</label>
+          <select class="field select-filter" id="finTeacherFilter"><option value="all">كل المدرسين</option></select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>المجموعة</label>
+          <select class="field select-filter" id="finGroupFilter"><option value="all">كل المجموعات</option></select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>من تاريخ</label>
+          <input type="date" class="field" id="finFromDate">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>إلى تاريخ</label>
+          <input type="date" class="field" id="finToDate">
+        </div>
+        <button id="finFilterBtn" class="ghost-btn">🔎 تصفية</button>
+        <button id="finPrintBtn" class="ghost-btn">🖨️ طباعة التقرير</button>
+        <button id="exportPdfBtn" class="primary-btn">📄 تصدير PDF</button>
+      </section>
+
+      <div id="financePrintArea">
+      <p id="financePrintHeader" class="print-only-block"></p>
+      <section class="stats-grid finance-grid">
+        <div class="stat-card tilt shine money-good">
+          <div class="stat-icon">💵</div><span class="stat-value" id="finCollected">0</span><span class="stat-label">إجمالي المحصّل</span>
+        </div>
+        <div class="stat-card tilt shine money-bad">
+          <div class="stat-icon">🧾</div><span class="stat-value" id="finExpenses">0</span><span class="stat-label">إجمالي المصروفات</span>
+        </div>
+        <div class="stat-card tilt shine money-net" id="finNetCard">
+          <div class="stat-icon">📈</div><span class="stat-value" id="finNet">0</span><span class="stat-label">صافي الربح / الخسارة</span>
+        </div>
+        <div class="stat-card tilt shine money-out">
+          <div class="stat-icon">⏳</div><span class="stat-value" id="finOutstanding">0</span><span class="stat-label">مستحقات لم تُحصَّل بعد</span>
+        </div>
+      </section>
+
+      <section class="finance-section">
+        <div class="section-header"><h2>💳 مديونية كل طالب</h2></div>
+        <div class="table-wrap glass-panel shine">
+          <table class="data-table" id="finStudentsTable">
+            <thead><tr><th>الطالب</th><th>الكود</th><th>الصف</th><th>المديونية</th></tr></thead>
+            <tbody id="finStudentsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="finance-section no-print">
+        <div class="section-header">
+          <h2>🧾 المصروفات التشغيلية</h2>
+          <button id="addExpenseBtn" class="ghost-btn">➕ إضافة مصروف</button>
+        </div>
+        <div class="table-wrap glass-panel shine">
+          <table class="data-table" id="expensesTable">
+            <thead><tr><th>البند</th><th>المبلغ</th><th>ملاحظات</th><th></th></tr></thead>
+            <tbody id="expensesBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="finance-section">
+        <div class="section-header"><h2>📒 سجل الدفعات التفصيلي</h2></div>
+        <div class="table-wrap glass-panel shine">
+          <table class="data-table" id="paymentsLedgerTable">
+            <thead>
+              <tr><th>التاريخ</th><th>الوقت</th><th>الطالب</th><th>الكود</th><th>المبلغ</th><th>السكرتير</th><th>ملاحظات</th></tr>
+            </thead>
+            <tbody id="paymentsLedgerBody"></tbody>
+          </table>
+          <div id="paymentsLedgerEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد دفعات مسجَّلة في هذا النطاق</p></div>
+        </div>
+      </section>
+      </div>
+    </main>
+
+    <!-- ===== ADMIN: MASTER TABLE ===== -->
+    <main id="page-master" class="view page hidden">
+      <section class="toolbar-row">
+        <h2 class="section-title-inline">الشيت المجمع الشامل</h2>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>من تاريخ</label>
+          <input type="date" class="field" id="masterFromDate">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>إلى تاريخ</label>
+          <input type="date" class="field" id="masterToDate">
+        </div>
+        <button id="masterFilterBtn" class="ghost-btn">🔎 تصفية</button>
+        <button id="exportMasterExcelBtn" class="primary-btn">📊 تصدير Excel</button>
+      </section>
+      <div class="table-wrap glass-panel shine">
+        <table class="data-table" id="masterTable">
+          <thead>
+            <tr>
+              <th>التاريخ</th><th>كود الطالب</th><th>الاسم</th><th>الصف</th><th>المدرس</th>
+              <th>وقت الحضور</th><th>الحضور</th><th>المدفوع</th><th>الواجب</th><th>الامتحان</th>
+              <th>ملاحظات</th><th>معتمد؟</th><th>المديونية الحالية</th>
+            </tr>
+          </thead>
+          <tbody id="masterBody"></tbody>
+        </table>
+        <div id="masterEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد سجلات في هذا النطاق</p></div>
+      </div>
+    </main>
+
+    <!-- ===== SECRETARY: RECEPTION ===== -->
+    <main id="page-reception" class="view page hidden">
+      <section class="search-wrap">
+        <div class="search-glass">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="studentSearch" placeholder="ابحث بالاسم أو الكود..." autocomplete="off">
+          <button id="clearSearchBtn" class="clear-btn hidden">✕</button>
+        </div>
+        <div class="quick-row">
+          <button id="scanQrBtn" class="quick-btn quick-scan"><span class="qi">📷</span>مسح الكود (تلقائي)</button>
+          <button id="addStudentBtn2" class="quick-btn quick-add"><span class="qi">➕</span>طالب جديد</button>
+        </div>
+        <div class="chips-row" id="groupChips">
+          <button class="chip active" data-group="all">الكل</button>
+        </div>
+      </section>
+
+      <section class="queue-banner" id="localQueueSummary">
+        <span class="q-icon">📥</span>
+        <span>سجلات بانتظار الاعتماد: <strong id="pendingCountSecretary">0</strong></span>
+      </section>
+
+      <section class="students-section">
+        <div id="studentsList" class="students-grid"></div>
+        <div id="noResults" class="empty-state hidden">
+          <span class="empty-emoji">🛸</span>
+          <p>لا توجد نتائج مطابقة</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== TEACHER: PORTAL ===== -->
+    <main id="page-teacherPortal" class="view page hidden">
+      <section class="toolbar-row">
+        <select class="field select-filter" id="teacherGradeLevelSelect"><option value="">— اختر المرحلة —</option></select>
+        <select class="field select-filter" id="teacherGroupSelect" disabled><option value="">— اختر المجموعة —</option></select>
+      </section>
+      <section class="search-wrap">
+        <div class="search-glass">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="teacherStudentSearch" placeholder="ابحث بالاسم أو الكود داخل المجموعة..." autocomplete="off">
+          <button id="teacherClearSearchBtn" class="clear-btn hidden">✕</button>
+        </div>
+      </section>
+      <section class="students-section">
+        <div id="teacherStudentsList" class="students-grid"></div>
+        <div id="teacherNoResults" class="empty-state hidden">
+          <span class="empty-emoji">🛸</span><p>اختر مرحلة ثم مجموعة لعرض الطلاب</p>
+        </div>
+      </section>
+      <div class="toolbar-row" id="teacherSubmitRow" style="justify-content:flex-end;">
+        <button id="teacherSubmitAllBtn" class="primary-btn hidden">📤 إرسال التقرير للأدمن</button>
+      </div>
+    </main>
+
+    <!-- ===== SETTINGS ===== -->
+    <main id="page-settings" class="view page hidden">
+      <section class="settings-grid">
+        <div class="glass-panel shine settings-card" id="centerInfoCard">
+          <h3>بيانات السنتر</h3>
+          <div class="form-group"><label>اسم السنتر (عربي)</label><input type="text" class="field" id="settingCenterNameAr"></div>
+          <div class="form-group"><label>اسم السنتر (إنجليزي)</label><input type="text" class="field" id="settingCenterNameEn"></div>
+          <button class="primary-btn" id="saveCenterInfoBtn">💾 حفظ</button>
+        </div>
+        <div class="glass-panel shine settings-card">
+          <h3>المظهر</h3>
+          <p class="sub">التبديل بين الوضع الليلي والنهاري</p>
+          <button class="ghost-btn" id="settingsThemeBtn">تبديل المظهر 🌙/☀️</button>
+        </div>
+        <div class="glass-panel shine settings-card">
+          <h3>الاتصال بقاعدة البيانات</h3>
+          <p class="sub">حالة الاتصال الحالية بـ Supabase</p>
+          <p class="sub" id="dbConnectionStatus">جاري التحقق...</p>
+        </div>
+      </section>
+    </main>
+
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-stack" aria-live="polite"></div>
+</div>
+
+<!-- ============ TEMPLATES ============ -->
+<template id="studentCardTemplate">
+  <article class="student-card tilt shine" data-id="">
+    <div class="card-glow"></div>
+    <div class="card-head">
+      <div class="avatar-orb"></div>
+      <div class="meta">
+        <h3 class="s-name"></h3>
+        <div class="tags">
+          <span class="tag tag-id">#<span class="s-id"></span></span>
+          <span class="tag tag-group"></span>
+        </div>
+      </div>
+      <span class="status-chip" data-role="statusPill">جديد</span>
+    </div>
+
+    <div class="debt-alert-box debt-alert-box-big" data-role="debtBox" id="studentTotalDebtBox">
+      <span class="debt-icon">⚠️</span>
+      <span class="debt-text">إجمالي المديونية الكلية: <b data-role="debtAmount">0</b> جنيه</span>
+    </div>
+
+    <div class="debt-details-wrap hidden" data-role="debtDetailsWrap">
+      <table class="debt-details-table">
+        <thead><tr><th>التاريخ</th><th>المجموعة</th><th>المتبقي</th></tr></thead>
+        <tbody data-role="debtDetailsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="time-row" data-role="timeRow">
+      <span class="time-in-chip" data-role="timeInChip">⏱ لم يُسجَّل حضور بعد</span>
+    </div>
+
+    <div class="form-group">
+      <label>مجموعة اليوم (<span data-role="todayDayLabel"></span>)</label>
+      <select class="field" data-field="todayGroup"></select>
+      <p class="sub today-group-note hidden" data-role="noGroupTodayNote">⚠️ الطالب غير مسجل بأي مجموعة تُقام اليوم</p>
+    </div>
+
+    <label class="present-toggle">
+      <input type="checkbox" data-field="presentCheck">
+      <span>☑️ حاضر</span>
+    </label>
+
+    <div class="form-row pay-amount-group">
+      <div class="form-group">
+        <label>المبلغ المدفوع</label>
+        <input type="number" class="field" data-field="paidNow" min="0" placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>المبلغ المتبقي</label>
+        <input type="number" class="field" data-field="remainingAmount" min="0" readonly>
+      </div>
+    </div>
+
+    <button class="save-btn" data-action="save"><span>💾</span> حفظ البيانات</button>
+  </article>
+</template>
+
+<template id="teacherStudentCardTemplate">
+  <article class="student-card tilt shine" data-id="">
+    <div class="card-glow"></div>
+    <div class="card-head">
+      <div class="avatar-orb"></div>
+      <div class="meta">
+        <h3 class="s-name"></h3>
+        <div class="tags">
+          <span class="tag tag-id">#<span class="s-id"></span></span>
+          <span class="tag tag-group"></span>
+        </div>
+      </div>
+      <span class="status-chip" data-role="statusPill">—</span>
+    </div>
+
+    <div class="student-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>درجة الواجب / من كام</label>
+          <div class="grade-pair">
+            <input type="number" class="field" data-field="homeworkGrade" min="0" placeholder="الدرجة">
+            <input type="number" class="field" data-field="homeworkMax" min="1" placeholder="من" value="20">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>درجة الامتحان / من كام</label>
+          <div class="grade-pair">
+            <input type="number" class="field" data-field="examGrade" min="0" placeholder="الدرجة">
+            <input type="number" class="field" data-field="examMax" min="1" placeholder="من" value="20">
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>ملاحظات المدرس السريعة</label>
+        <textarea class="field area" data-field="notes" rows="2" placeholder="اكتب ملاحظاتك هنا..."></textarea>
+      </div>
+    </div>
+
+    <button class="save-btn" data-action="saveGrades"><span>💾</span> حفظ الدرجات</button>
+  </article>
+</template>
+
+<template id="approvalCardTemplate">
+  <article class="approval-card tilt shine" data-id="">
+    <div class="card-head">
+      <div class="avatar-orb small"></div>
+      <div class="meta">
+        <h3 class="s-name"></h3>
+        <div class="tags">
+          <span class="tag tag-id">#<span class="s-id"></span></span>
+          <span class="tag tag-group"></span>
+        </div>
+      </div>
+      <span class="time-chip" data-role="time"></span>
+    </div>
+
+    <div class="pill-row">
+      <span class="pill" data-role="attendancePill">—</span>
+      <span class="pill" data-role="paymentPill">—</span>
+      <span class="pill" data-role="homeworkPill">واجب: —</span>
+      <span class="pill" data-role="examPill">امتحان: —</span>
+    </div>
+
+    <p class="notes-text" data-role="notesText"></p>
+    <span class="by-line" data-role="secretaryName"></span>
+
+    <div class="approval-actions">
+      <button class="action-btn approve-btn" data-action="approve">✅ اعتماد (يخصم من المديونية)</button>
+      <button class="action-btn edit-btn" data-action="edit">✏️ تعديل</button>
+    </div>
+  </article>
+</template>
+
+<!-- ============ EDIT MODAL ============ -->
+<div id="editModal" class="modal-overlay hidden">
+  <div class="glass-panel edit-panel">
+    <div class="panel-header">
+      <h2>تعديل السجل</h2>
+      <button class="x-btn" id="editModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <p class="edit-name" id="editStudentName"></p>
+
+      <div class="segmented">
+        <button class="seg" id="editPresentBtn">✅ حاضر</button>
+        <button class="seg" id="editAbsentBtn">❌ غائب</button>
+      </div>
+      <div class="segmented segmented-sm">
+        <button class="seg" id="editPaidBtn">💰 دفع</button>
+        <button class="seg" id="editUnpaidBtn">💸 لم يدفع</button>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>الدرجة العظمى — واجب</label>
+          <input type="number" class="field" id="editHomeworkMax" min="1" value="20">
+        </div>
+        <div class="form-group">
+          <label>الدرجة العظمى — امتحان</label>
+          <input type="number" class="field" id="editExamMax" min="1" value="20">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>درجة الواجب</label>
+          <input type="number" class="field" id="editHomeworkGrade" min="0">
+        </div>
+        <div class="form-group">
+          <label>درجة الامتحان</label>
+          <input type="number" class="field" id="editExamGrade" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>المبلغ المدفوع</label>
+        <input type="number" class="field" id="editAmountPaid" min="0">
+      </div>
+      <div class="form-group">
+        <label>ملاحظات</label>
+        <textarea class="field area" id="editNotes" rows="3"></textarea>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button class="ghost-btn danger" id="deleteRecordBtn">🗑️ حذف</button>
+      <button class="primary-btn" id="saveEditBtn">💾 حفظ التعديلات</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CONFIRM ============ -->
+<div id="confirmModal" class="modal-overlay hidden">
+  <div class="glass-panel confirm-panel">
+    <div class="confirm-orb">⚠️</div>
+    <h3 id="confirmTitle">هل أنت متأكد؟</h3>
+    <p id="confirmMessage" class="sub"></p>
+    <div class="confirm-actions">
+      <button class="ghost-btn" id="confirmCancelBtn">إلغاء</button>
+      <button class="primary-btn danger" id="confirmOkBtn">تأكيد</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADD STUDENT ============ -->
+<div id="addStudentModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2>➕ إضافة طالب جديد</h2>
+      <button class="x-btn" id="addStudentModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div id="addStudentFormStep">
+        <div class="form-group">
+          <label>كود الطالب (Student Code) — إدخال يدوي</label>
+          <input type="text" class="field" id="newStudentCode" placeholder="مثال: ATF-1001">
+        </div>
+        <div class="form-group">
+          <label>اسم الطالب</label>
+          <input type="text" class="field" id="newStudentName" placeholder="مثال: أحمد محمد السيد">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>السنة / المرحلة الدراسية</label>
+            <select class="field" id="newStudentGradeLevel"><option value="">— اختر —</option></select>
+          </div>
+          <div class="form-group">
+            <label>المادة</label>
+            <select class="field" id="newStudentSubject" disabled><option value="">— اختر المرحلة أولاً —</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>المعلم</label>
+            <select class="field" id="newStudentTeacherSelect" disabled><option value="">— اختر المادة أولاً —</option></select>
+          </div>
+          <div class="form-group">
+            <label>المجموعة</label>
+            <select class="field" id="newStudentGroupSelect" disabled><option value="">— اختر المعلم أولاً —</option></select>
+          </div>
+        </div>
+        <div class="form-row grade-level-add-row">
+          <span class="sub" style="margin:0;flex:1;">اختر السنة/المادة/المدرس/المجموعة ثم أضفها للسلة — يمكن تكرار هذا لأكثر من مادة</span>
+          <button type="button" class="ghost-btn" id="addGroupToCartBtn">➕ إضافة مادة</button>
+        </div>
+        <div class="chips-row" id="newStudentGroupsCart"></div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>رقم هاتف الطالب</label>
+            <input type="tel" class="field" id="newStudentPhone" placeholder="01012345678">
+          </div>
+          <div class="form-group">
+            <label>رقم هاتف ولي الأمر</label>
+            <input type="tel" class="field" id="newStudentParentPhone" placeholder="01012345678">
+          </div>
+        </div>
+      </div>
+      <div id="addStudentQrStep" class="hidden">
+        <p class="sub center-text">تم إنشاء الطالب بنجاح! كارت QR جاهز 👇</p>
+        <div id="qrCardPreview" class="flip-holder"></div>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="createStudentBtn">✅ إنشاء الطالب</button>
+      <button class="primary-btn hidden" id="printNewQrCardBtn">🖨️ طباعة الكارت</button>
+      <button class="ghost-btn hidden" id="addAnotherStudentBtn">➕ طالب آخر</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADD/EDIT TEACHER ============ -->
+<div id="teacherModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2 id="teacherModalTitle">➕ إضافة مدرس جديد</h2>
+      <button class="x-btn" id="teacherModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-group"><label>اسم المدرس</label><input type="text" class="field" id="teacherName" placeholder="أ. محمد أحمد"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>السنة الدراسية</label>
+          <select class="field" id="teacherGradeLevel"><option value="">— اختر —</option></select>
+        </div>
+        <div class="form-group">
+          <label>المادة</label>
+          <select class="field" id="teacherSubjectSelect" disabled><option value="">— اختر السنة الدراسية أولاً —</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>الهاتف</label><input type="tel" class="field" id="teacherPhone" placeholder="010..."></div>
+        <div class="form-group"><label>نسبة الأرباح %</label><input type="number" class="field" id="teacherProfitPercentage" placeholder="50" min="0" max="100"></div>
+      </div>
+      <hr class="modal-divider">
+      <p class="sub">حساب دخول المدرس <b style="color:var(--danger)">(إجباري)</b></p>
+      <div class="form-row">
+        <div class="form-group"><label>اسم المستخدم *</label><input type="text" class="field" id="teacherUsername" placeholder="username"></div>
+        <div class="form-group"><label>كلمة المرور *</label><input type="text" class="field" id="teacherPassword" placeholder="password"></div>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="saveTeacherBtn">💾 حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADD GROUP ============ -->
+<div id="groupModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2>➕ إنشاء مجموعة جديدة</h2>
+      <button class="x-btn" id="groupModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-group">
+        <label>السنة / المرحلة الدراسية</label>
+        <select class="field" id="groupGradeLevel"><option value="">— اختر —</option></select>
+      </div>
+      <div class="form-group">
+        <label>المادة</label>
+        <select class="field" id="groupSubject"><option value="">— اختر السنة الدراسية أولاً —</option></select>
+      </div>
+      <div class="form-group">
+        <label>المدرس</label>
+        <select class="field" id="groupTeacher"><option value="">— اختر —</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>اليوم</label>
+          <select class="field" id="groupDayOfWeek">
+            <option value="السبت">السبت</option><option value="الأحد">الأحد</option>
+            <option value="الاثنين">الاثنين</option><option value="الثلاثاء">الثلاثاء</option>
+            <option value="الأربعاء">الأربعاء</option><option value="الخميس">الخميس</option>
+            <option value="الجمعة">الجمعة</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>الموعد</label>
+          <input type="time" class="field" id="groupTimeStart">
+        </div>
+      </div>
+      <div class="form-group"><label>سعر الحصة (جنيه)</label><input type="number" class="field" id="groupPricePerSession" placeholder="50"></div>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="saveGroupBtn">💾 حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADD/EDIT SECRETARY ============ -->
+<div id="secretaryModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2 id="secretaryModalTitle">➕ إضافة سكرتير جديد</h2>
+      <button class="x-btn" id="secretaryModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-group"><label>الاسم الكامل *</label><input type="text" class="field" id="secretaryName" placeholder="مثال: منى إبراهيم"></div>
+      <div class="form-row">
+        <div class="form-group"><label>اسم المستخدم *</label><input type="text" class="field" id="secretaryUsername" placeholder="username"></div>
+        <div class="form-group"><label>كلمة المرور *</label><input type="text" class="field" id="secretaryPassword" placeholder="password"></div>
+      </div>
+      <div class="form-group"><label>الهاتف</label><input type="tel" class="field" id="secretaryPhone" placeholder="010..."></div>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="saveSecretaryBtn">💾 حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ADD EXPENSE ============ -->
+<div id="expenseModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2>🧾 إضافة مصروف</h2>
+      <button class="x-btn" id="expenseModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-group"><label>اسم البند</label><input type="text" class="field" id="expenseName" placeholder="استضافة السيرفر"></div>
+      <div class="form-group"><label>المبلغ (جنيه)</label><input type="number" class="field" id="expenseAmount" placeholder="300"></div>
+      <div class="form-group"><label>ملاحظات</label><input type="text" class="field" id="expenseNote" placeholder="شهرياً"></div>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="saveExpenseBtn">💾 حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ EDIT STUDENT ============ -->
+<div id="studentFinanceModal" class="modal-overlay hidden">
+  <div class="glass-panel add-panel">
+    <div class="panel-header">
+      <h2>💳 تعديل بيانات الطالب</h2>
+      <button class="x-btn" id="studentFinanceModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <p class="edit-name" id="sfStudentName"></p>
+      <div class="debt-alert-box">
+        <span class="debt-icon">⚠️</span>
+        <span class="debt-text">المديونية الحالية: <b id="sfCurrentDebt">0</b> جنيه</span>
+      </div>
+      <div class="form-group"><label>كود الطالب</label><input type="text" class="field" id="sfStudentCode"></div>
+      <div class="form-group"><label>تعديل المديونية الكلية (جنيه)</label><input type="number" class="field" id="sfDebt"></div>
+      <div class="form-group"><label>الصف / المرحلة</label><input type="text" class="field" id="sfGradeLevel"></div>
+      <div class="form-group"><label>هاتف ولي الأمر</label><input type="tel" class="field" id="sfParentPhone"></div>
+
+      <hr class="modal-divider">
+      <p class="sub" style="margin-bottom:8px;">المواد المشترك بها الطالب حالياً</p>
+      <div class="chips-row" id="sfGroupsChips"></div>
+
+      <p class="sub" style="margin-top:14px;margin-bottom:8px;">إضافة اشتراك في مادة جديدة</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>السنة / المرحلة الدراسية</label>
+          <select class="field" id="sfEnrollGradeLevel"><option value="">— اختر —</option></select>
+        </div>
+        <div class="form-group">
+          <label>المادة</label>
+          <select class="field" id="sfEnrollSubject" disabled><option value="">— اختر المرحلة أولاً —</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>المعلم</label>
+          <select class="field" id="sfEnrollTeacher" disabled><option value="">— اختر المادة أولاً —</option></select>
+        </div>
+        <div class="form-group">
+          <label>المجموعة</label>
+          <select class="field" id="sfEnrollGroup" disabled><option value="">— اختر المعلم أولاً —</option></select>
+        </div>
+      </div>
+      <div class="form-row grade-level-add-row">
+        <span class="sub" style="margin:0;flex:1;"></span>
+        <button type="button" class="ghost-btn" id="sfAddGroupBtn">➕ إضافة مادة</button>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button class="ghost-btn danger" id="sfDeleteBtn">🗑️ حذف الطالب</button>
+      <button class="primary-btn" id="sfSaveBtn">💾 حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ QR VIEW ============ -->
+<div id="qrViewModal" class="modal-overlay hidden">
+  <div class="glass-panel qr-view-panel">
+    <div class="panel-header">
+      <h2>🔳 كارت الطالب</h2>
+      <button class="x-btn" id="qrViewModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div id="qrViewCardPreview" class="flip-holder"></div>
+      <p class="sub center-text flip-hint">انقر على الكارت لقلبه ورؤية QR</p>
+    </div>
+    <div class="panel-footer">
+      <button class="primary-btn" id="printQrViewBtn">🖨️ طباعة الكارت</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCANNER ============ -->
+<div id="scannerModal" class="modal-overlay hidden">
+  <div class="glass-panel scanner-panel">
+    <div class="panel-header">
+      <h2>📷 مسح الكود — تسجيل تلقائي</h2>
+      <button class="x-btn" id="scannerModalClose">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="scan-frame">
+        <div id="qrReaderRegion"></div>
+        <i class="corner c1"></i><i class="corner c2"></i><i class="corner c3"></i><i class="corner c4"></i>
+        <div class="scan-line"></div>
+      </div>
+      <p class="sub center-text">وجّه الكاميرا نحو كود الطالب — سيتم تسجيل الحضور فوراً بدون تدخل يدوي</p>
+      <div id="scannerResult" class="scanner-result hidden"></div>
+    </div>
+  </div>
+</div>
+
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
