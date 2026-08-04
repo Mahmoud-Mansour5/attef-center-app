@@ -1839,7 +1839,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 // تسجيل الـ Service Worker وإظهار نافذة التثبيت أوتوماتيكياً
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Registration failed:', err));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+  });
 }
 
 let deferredPrompt;
