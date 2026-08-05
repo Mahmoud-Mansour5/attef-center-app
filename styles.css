@@ -727,3 +727,53 @@ select.field:disabled { opacity: .55; cursor: not-allowed; }
   object-fit: contain;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
 }
+/* ==========================================================================
+   Print Styles (Clean & Professional)
+   ========================================================================== */
+.print-only, .print-only-block { display: none !important; }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  
+  /* إخفاء كل ما لا يخص الطباعة */
+  .sidebar, .topbar, .no-print, .ghost-btn, .primary-btn, button, input, select, .search-glass, .toast-stack, .queue-banner {
+    display: none !important;
+  }
+
+  .main-area, .pages-scroll, .page, .view {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* إظهار هيدر الطباعة المخصص */
+  .print-only, .print-only-block {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #ccc;
+  }
+
+  .print-title { font-size: 22px !important; font-weight: bold; margin: 0; color: #000 !important; }
+  .print-sub { font-size: 14px !important; color: #555 !important; margin-top: 5px; }
+
+  /* تظبيط الجداول للكارت المطبوع */
+  .glass-panel, .table-wrap, .stat-card {
+    background: transparent !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    break-inside: avoid;
+  }
+
+  .data-table { width: 100% !important; border-collapse: collapse !important; }
+  .data-table th, .data-table td {
+    border: 1px solid #aaa !important;
+    padding: 8px !important;
+    color: #000 !important;
+    font-size: 12px !important;
+  }
+  .data-table th { background: #eee !important; font-weight: bold !important; }
+}

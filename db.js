@@ -457,20 +457,26 @@ const DB = (() => {
       // + تسجيل حركة تفصيلية في student_payments لظهورها في تقرير الماليات
       // ⚠️ تصليح حساب المديونية الشامل (إضافة سعر الحصة وخصم المدفوع)
       const isNewRecord = !existing;
+      // ⚠️ تصليح حساب المديونية الشامل (تطبيق سياسة: لا رسوم على الغائب)
       const group = this.getGroupById(groupId);
       const sessionPrice = Number(group?.price_per_session) || 0;
       
       const oldPaid = existing?.amount_paid ? Number(existing.amount_paid) : 0;
       const newPaid = record.amountPaid !== undefined ? Number(record.amountPaid) : oldPaid;
       
+      const oldAttendance = existing?.attendance || 'none';
+      const newAttendance = record.attendance || oldAttendance;
+
+      // سعر الحصة يُحسب فقط إذا كان الطالب "حاضر"
+      const oldSessionCharge = oldAttendance === 'present' ? sessionPrice : 0;
+      const newSessionCharge = newAttendance === 'present' ? sessionPrice : 0;
+
       let debtChange = 0;
       
-      // 1. لو سجل جديد، نضيف سعر الحصة على المديونية
-      if (isNewRecord) {
-        debtChange += sessionPrice;
-      }
+      // 1. حساب التغير في رسوم الحصة (تُضاف فقط للحاضر، وتُخصم لو تحول لغائب)
+      debtChange += (newSessionCharge - oldSessionCharge);
       
-      // 2. نخصم الفارق بين المبلغ المدفوع حالياً والقديم
+      // 2. خصم الفارق بين المبلغ المدفوع حالياً والقديم
       debtChange -= (newPaid - oldPaid);
 
       // 3. تحديث المديونية الكلية للطالب

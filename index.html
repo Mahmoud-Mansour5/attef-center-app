@@ -289,7 +289,7 @@
 
     <!-- ===== ADMIN: FINANCE ===== -->
     <main id="page-finance" class="view page hidden">
-      <section class="toolbar-row" id="financeFiltersRow">
+      <section class="toolbar-row no-print" id="financeFiltersRow">
         <div class="form-group" style="margin-bottom:0;">
           <label>المدرس</label>
           <select class="field select-filter" id="finTeacherFilter"><option value="all">كل المدرسين</option></select>
@@ -307,95 +307,126 @@
           <input type="date" class="field" id="finToDate">
         </div>
         <button id="finFilterBtn" class="ghost-btn">🔎 تصفية</button>
-        <button id="finPrintBtn" class="ghost-btn">🖨️ طباعة التقرير</button>
-        <button id="exportPdfBtn" class="primary-btn">📄 تصدير PDF</button>
+        <button id="finPrintBtn" class="primary-btn">🖨️ طباعة التقرير</button>
       </section>
 
       <div id="financePrintArea">
-      <p id="financePrintHeader" class="print-only-block"></p>
-      <section class="stats-grid finance-grid">
-        <div class="stat-card tilt shine money-good">
-          <div class="stat-icon">💵</div><span class="stat-value" id="finCollected">0</span><span class="stat-label">إجمالي المحصّل</span>
+        <div class="print-header-branding print-only">
+          <h1 class="print-title">ATTEF CENTER — سنتر عاطف</h1>
+          <p id="financePrintHeader" class="print-sub"></p>
         </div>
-        <div class="stat-card tilt shine money-bad">
-          <div class="stat-icon">🧾</div><span class="stat-value" id="finExpenses">0</span><span class="stat-label">إجمالي المصروفات</span>
-        </div>
-        <div class="stat-card tilt shine money-net" id="finNetCard">
-          <div class="stat-icon">📈</div><span class="stat-value" id="finNet">0</span><span class="stat-label">صافي الربح / الخسارة</span>
-        </div>
-        <div class="stat-card tilt shine money-out">
-          <div class="stat-icon">⏳</div><span class="stat-value" id="finOutstanding">0</span><span class="stat-label">مستحقات لم تُحصَّل بعد</span>
-        </div>
-      </section>
 
-      <section class="finance-section">
-        <div class="section-header"><h2>💳 مديونية كل طالب</h2></div>
-        <div class="table-wrap glass-panel shine">
-          <table class="data-table" id="finStudentsTable">
-            <thead><tr><th>الطالب</th><th>الكود</th><th>الصف</th><th>المديونية</th></tr></thead>
-            <tbody id="finStudentsBody"></tbody>
-          </table>
-        </div>
-      </section>
+        <section class="stats-grid finance-grid">
+          <div class="stat-card tilt shine money-good">
+            <div class="stat-icon">💵</div><span class="stat-value" id="finCollected">0</span><span class="stat-label">إجمالي المحصّل (كاش)</span>
+          </div>
+          <div class="stat-card tilt shine money-out">
+            <div class="stat-icon">⏳</div><span class="stat-value" id="finOutstanding">0</span><span class="stat-label">مستحقات لم تُحصَّل بعد</span>
+          </div>
+        </section>
 
-      <section class="finance-section no-print">
-        <div class="section-header">
-          <h2>🧾 المصروفات التشغيلية</h2>
-          <button id="addExpenseBtn" class="ghost-btn">➕ إضافة مصروف</button>
-        </div>
-        <div class="table-wrap glass-panel shine">
-          <table class="data-table" id="expensesTable">
-            <thead><tr><th>البند</th><th>المبلغ</th><th>ملاحظات</th><th></th></tr></thead>
-            <tbody id="expensesBody"></tbody>
-          </table>
-        </div>
-      </section>
+        <section class="finance-section">
+          <div class="section-header">
+            <h2>📊 تقفيل حساب مجموعة اليوم</h2>
+            <div class="no-print" style="display:flex; gap:10px; align-items:center;">
+              <select class="field" id="sessionSettlementGroupSelect"><option value="">— اختر مجموعة اليوم —</option></select>
+              <button id="printSettlementBtn" class="ghost-btn">🖨️ طباعة التقفيل</button>
+            </div>
+          </div>
+          <div class="glass-panel shine" style="padding:16px;" id="settlementBox">
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:0;">
+              <div class="stat-card" style="background:rgba(255,255,255,0.03);">
+                <span class="stat-label">حضور اليوم</span>
+                <span class="stat-value" id="settlePresentCount" style="color:var(--success, #22c55e);">0</span>
+              </div>
+              <div class="stat-card" style="background:rgba(255,255,255,0.03);">
+                <span class="stat-label">غياب اليوم</span>
+                <span class="stat-value" id="settleAbsentCount" style="color:var(--danger, #ef4444);">0</span>
+              </div>
+              <div class="stat-card" style="background:rgba(255,255,255,0.03);">
+                <span class="stat-label">كاش محصّل اليوم</span>
+                <span class="stat-value" id="settleCashCollected" style="color:#3b82f6;">0 ج</span>
+              </div>
+              <div class="stat-card" style="background:rgba(255,255,255,0.03);">
+                <span class="stat-label">ديون جديدة اليوم</span>
+                <span class="stat-value" id="settleNewDebt" style="color:#f59e0b;">0 ج</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <section class="finance-section">
-        <div class="section-header"><h2>📒 سجل الدفعات التفصيلي</h2></div>
-        <div class="table-wrap glass-panel shine">
-          <table class="data-table" id="paymentsLedgerTable">
-            <thead>
-              <tr><th>التاريخ</th><th>الوقت</th><th>الطالب</th><th>الكود</th><th>المبلغ</th><th>السكرتير</th><th>ملاحظات</th></tr>
-            </thead>
-            <tbody id="paymentsLedgerBody"></tbody>
-          </table>
-          <div id="paymentsLedgerEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد دفعات مسجَّلة في هذا النطاق</p></div>
-        </div>
-      </section>
+        <section class="finance-section">
+          <div class="section-header">
+            <h2>💳 مديونية الطلاب</h2>
+            <div class="search-glass no-print" style="max-width:280px;">
+              <span class="search-icon">🔍</span>
+              <input type="search" id="finStudentDebtSearch" placeholder="ابحث بكود الطالب..." autocomplete="off">
+            </div>
+          </div>
+          <div class="table-wrap glass-panel shine">
+            <table class="data-table" id="finStudentsTable">
+              <thead><tr><th>الطالب</th><th>الكود</th><th>الصف</th><th>المديونية</th></tr></thead>
+              <tbody id="finStudentsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="finance-section">
+          <div class="section-header"><h2>📒 سجل الدفعات التفصيلي</h2></div>
+          <div class="table-wrap glass-panel shine">
+            <table class="data-table" id="paymentsLedgerTable">
+              <thead>
+                <tr><th>التاريخ</th><th>الوقت</th><th>الطالب</th><th>الكود</th><th>المبلغ</th><th>السكرتير</th><th>ملاحظات</th></tr>
+              </thead>
+              <tbody id="paymentsLedgerBody"></tbody>
+            </table>
+            <div id="paymentsLedgerEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد دفعات مسجَّلة</p></div>
+          </div>
+        </section>
       </div>
     </main>
 
     <!-- ===== ADMIN: MASTER TABLE ===== -->
     <main id="page-master" class="view page hidden">
-      <section class="toolbar-row">
+      <section class="toolbar-row no-print">
         <h2 class="section-title-inline">الشيت المجمع الشامل</h2>
+        <div class="search-glass" style="max-width:220px;">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="masterStudentSearch" placeholder="بحث بكود الطالب..." autocomplete="off">
+        </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label>من تاريخ</label>
+          <label>من</label>
           <input type="date" class="field" id="masterFromDate">
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label>إلى تاريخ</label>
+          <label>إلى</label>
           <input type="date" class="field" id="masterToDate">
         </div>
         <button id="masterFilterBtn" class="ghost-btn">🔎 تصفية</button>
-        <button id="exportMasterExcelBtn" class="primary-btn">📊 تصدير Excel</button>
+        <button id="printStudentReportBtn" class="primary-btn">🖨️ طباعة لولي الأمر</button>
+        <button id="exportMasterExcelBtn" class="ghost-btn">📊 Excel</button>
       </section>
+
+      <div class="print-header-branding print-only">
+        <h1 class="print-title">ATTEF CENTER — تقرير متابعة أكاديمية</h1>
+        <p id="masterPrintHeader" class="print-sub"></p>
+      </div>
+
       <div class="table-wrap glass-panel shine">
         <table class="data-table" id="masterTable">
           <thead>
             <tr>
-              <th>التاريخ</th><th>كود الطالب</th><th>الاسم</th><th>الصف</th><th>المدرس</th>
-              <th>وقت الحضور</th><th>الحضور</th><th>المدفوع</th><th>الواجب</th><th>الامتحان</th>
-              <th>ملاحظات</th><th>معتمد؟</th><th>المديونية الحالية</th>
+              <th>التاريخ</th><th>الكود</th><th>الاسم</th><th>الصف</th><th>المدرس</th>
+              <th>الحضور</th><th>المدفوع</th><th>الواجب</th><th>الامتحان</th>
+              <th>ملاحظات المدرس</th><th>المديونية</th>
             </tr>
           </thead>
           <tbody id="masterBody"></tbody>
         </table>
-        <div id="masterEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد سجلات في هذا النطاق</p></div>
+        <div id="masterEmpty" class="empty-state hidden"><span class="empty-emoji">🛸</span><p>لا توجد سجلات</p></div>
       </div>
     </main>
-
+    
     <!-- ===== SECRETARY: RECEPTION ===== -->
     <main id="page-reception" class="view page hidden">
       <section class="search-wrap">
@@ -850,22 +881,7 @@
 </div>
 
 <!-- ============ ADD EXPENSE ============ -->
-<div id="expenseModal" class="modal-overlay hidden">
-  <div class="glass-panel add-panel">
-    <div class="panel-header">
-      <h2>🧾 إضافة مصروف</h2>
-      <button class="x-btn" id="expenseModalClose">✕</button>
-    </div>
-    <div class="panel-body">
-      <div class="form-group"><label>اسم البند</label><input type="text" class="field" id="expenseName" placeholder="استضافة السيرفر"></div>
-      <div class="form-group"><label>المبلغ (جنيه)</label><input type="number" class="field" id="expenseAmount" placeholder="300"></div>
-      <div class="form-group"><label>ملاحظات</label><input type="text" class="field" id="expenseNote" placeholder="شهرياً"></div>
-    </div>
-    <div class="panel-footer">
-      <button class="primary-btn" id="saveExpenseBtn">💾 حفظ</button>
-    </div>
-  </div>
-</div>
+
 
 <!-- ============ EDIT STUDENT ============ -->
 <div id="studentFinanceModal" class="modal-overlay hidden">

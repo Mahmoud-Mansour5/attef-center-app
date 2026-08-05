@@ -859,17 +859,18 @@ function initSecretariesPage() {
 /* ==========================================================================
    Finance page (admin)
    ========================================================================== */
+/* ==========================================================================
+   Finance page (admin)
+   ========================================================================== */
 function renderFinanceFilterOptions() {
   const teacherSel = $('#finTeacherFilter');
   const groupSel = $('#finGroupFilter');
   const curTeacher = teacherSel.value || 'all';
   const curGroup = groupSel.value || 'all';
 
-  teacherSel.innerHTML = '<option value="all">كل المدرسين</option>' +
-    DB.getTeachers().map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  teacherSel.innerHTML = '<option value="all">كل المدرسين</option>' + DB.getTeachers().map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
   teacherSel.value = curTeacher;
 
-  // المجموعات المعروضة تتبع المدرس المختار (لو محدد) لتسهيل التصفية المتقاطعة
   const groups = curTeacher !== 'all' ? DB.getGroupsByTeacher(curTeacher) : DB.getGroups();
   groupSel.innerHTML = '<option value="all">كل المجموعات</option>' + groups.map(g => {
     const teacher = DB.getTeacherById(g.teacher_id);
@@ -879,38 +880,35 @@ function renderFinanceFilterOptions() {
   }).join('');
   groupSel.value = curGroup;
 }
+
 function renderFinancePage() {
   renderFinanceFilterOptions();
   const fromDate = $('#finFromDate').value || null;
   const toDate = $('#finToDate').value || null;
   const teacherId = $('#finTeacherFilter').value || 'all';
   const groupId = $('#finGroupFilter').value || 'all';
+  const debtSearch = ($('#finStudentDebtSearch')?.value || '').trim().toLowerCase();
 
   const fin = DB.getFinanceSummary(fromDate, toDate, teacherId, groupId);
   $('#finCollected').textContent = fmt(fin.totalCollected);
-  $('#finExpenses').textContent = fmt(fin.totalExpenses);
-  $('#finNet').textContent = fmt(fin.netProfit);
   $('#finOutstanding').textContent = fmt(fin.totalOutstanding);
-  $('#finNetCard').classList.toggle('negative', fin.netProfit < 0);
-  $('#finNetCard').classList.toggle('positive', fin.netProfit >= 0);
 
+  // 1. مديونية الطلاب مع البحث
+  let students = DB.getStudents();
+  if (debtSearch) {
+    students = students.filter(s => String(s.student_code).toLowerCase().includes(debtSearch) || s.name.toLowerCase().includes(debtSearch));
+  }
   const sBody = $('#finStudentsBody');
-  sBody.innerHTML = DB.getStudents().map(s => `
+  sBody.innerHTML = students.map(s => `
     <tr><td><b>${escapeHtml(s.name)}</b></td><td>#${escapeHtml(s.student_code)}</td>
-      <td>${escapeHtml(s.grade_level || '—')}</td><td>${debtBadgeHtml(s.total_debt)}</td></tr>
-  `).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--ink-faint)">لا يوجد طلاب</td></tr>`;
+    <td>${escapeHtml(s.grade_level || '—')}</td><td>${debtBadgeHtml(s.total_debt)}</td></tr>
+  `).join('') || `<tr><td colspan="4" style="text-align:center;">لا يوجد طلاب مطابقون للبحث</td></tr>`;
 
-  const eBody = $('#expensesBody');
-  eBody.innerHTML = DB.getExpenses().map(e => `<tr><td>${escapeHtml(e.name)}</td><td>${fmt(e.amount)}</td><td>${escapeHtml(e.note || '—')}</td>
-      <td><button class="row-action-btn" data-delete-expense="${e.id}" title="حذف">🗑️</button></td></tr>`).join('')
-      || `<tr><td colspan="4" style="text-align:center;color:var(--ink-faint)">لا توجد مصروفات</td></tr>`;
-  eBody.querySelectorAll('[data-delete-expense]').forEach(btn => btn.addEventListener('click', async () => {
-    await DB.deleteExpense(btn.dataset.deleteExpense);
-    toast('🗑️ تم حذف البند');
-    renderFinancePage();
-  }));
+  // 2. تحديث التقفيل
+  renderTodayGroupsSettlementSelect();
+  calculateGroupSettlement();
 
-  // سجل الدفعات التفصيلي — كل دفعة، توقيتها، ومن استلمها من السكرتارية، مفلترة حسب المدرس/المجموعة/التاريخ
+  // 3. سجل الدفعات التفصيلي
   const ledger = DB.getPaymentLedgerRows(fromDate, toDate, teacherId, groupId);
   const pBody = $('#paymentsLedgerBody');
   if (pBody) {
@@ -924,69 +922,72 @@ function renderFinancePage() {
     `).join('');
   }
 
-  // ترويسة الطباعة: تلخّص الفلاتر النشطة عند الطباعة فقط
-  const teacherLabel = teacherId !== 'all' ? (DB.getTeacherById(teacherId)?.name || '') : 'كل المدرسين';
-  const groupLabel = groupId !== 'all' ? ($('#finGroupFilter').selectedOptions[0]?.textContent || '') : 'كل المجموعات';
-  $('#financePrintHeader').textContent =
-    `تقرير مالي — ${DB.getCenterInfo().nameAr} | المدرس: ${teacherLabel} | المجموعة: ${groupLabel} | من ${fromDate || '—'} إلى ${toDate || '—'}`;
+  const teacherLabel = teacherId !== 'all' ? (DB.getTeacherById(teacherId)?.name || '') : 'الكل';
+  $('#financePrintHeader').textContent = `التقرير المالي الإجمالي | المدرس: ${teacherLabel} | من ${fromDate || 'البداية'} إلى ${toDate || 'اليوم'}`;
 }
-function initExpenseModal() {
-  $('#addExpenseBtn').addEventListener('click', () => {
-    $('#expenseName').value = ''; $('#expenseAmount').value = ''; $('#expenseNote').value = '';
-    $('#expenseModal').classList.remove('hidden');
-  });
-  $('#expenseModalClose').addEventListener('click', () => $('#expenseModal').classList.add('hidden'));
-  $('#saveExpenseBtn').addEventListener('click', async () => {
-    const name = $('#expenseName').value.trim();
-    if (!name) { toast('⚠️ أدخل اسم البند', 'error'); return; }
-    await DB.addExpense({ name, amount: $('#expenseAmount').value, note: $('#expenseNote').value.trim() });
-    $('#expenseModal').classList.add('hidden');
-    toast('✅ تم إضافة المصروف', 'success');
-    renderFinancePage();
-  });
+
+// -- حسابات التقفيل اليومي --
+function renderTodayGroupsSettlementSelect() {
+  const sel = $('#sessionSettlementGroupSelect');
+  if (!sel) return;
+  const currentVal = sel.value;
+  const today = DB.getTodayDayName();
+  const todayGroups = DB.getGroups().filter(g => g.day_of_week === today);
+
+  sel.innerHTML = '<option value="">— اختر مجموعة اليوم —</option>' + todayGroups.map(g => {
+    const teacher = DB.getTeacherById(g.teacher_id);
+    return `<option value="${g.id}">${escapeHtml(g.grade_level || 'مجموعة')} — ${teacher ? teacher.name : ''}</option>`;
+  }).join('');
+  if (currentVal) sel.value = currentVal;
 }
+
+function calculateGroupSettlement() {
+  const groupId = $('#sessionSettlementGroupSelect')?.value;
+  if (!groupId) {
+    $('#settlePresentCount').textContent = '0';
+    $('#settleAbsentCount').textContent = '0';
+    $('#settleCashCollected').textContent = '0 ج';
+    $('#settleNewDebt').textContent = '0 ج';
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const group = DB.getGroupById(groupId);
+  const sessionPrice = Number(group?.price_per_session) || 0;
+
+  const records = DB.getDailyRecords().filter(r => String(r.group_id) === String(groupId) && r.session_date === today);
+
+  const presentCount = records.filter(r => r.attendance === 'present').length;
+  const absentCount = records.filter(r => r.attendance === 'absent').length;
+  const cashCollected = records.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0);
+  
+  const expectedTotal = presentCount * sessionPrice;
+  const newDebt = Math.max(0, expectedTotal - cashCollected);
+
+  $('#settlePresentCount').textContent = presentCount;
+  $('#settleAbsentCount').textContent = absentCount;
+  $('#settleCashCollected').textContent = fmt(cashCollected) + ' ج';
+  $('#settleNewDebt').textContent = fmt(newDebt) + ' ج';
+}
+
 function initFinanceFilters() {
   $('#finFilterBtn').addEventListener('click', renderFinancePage);
-  $('#exportPdfBtn').addEventListener('click', exportFinancePdf);
   $('#finTeacherFilter').addEventListener('change', () => { renderFinanceFilterOptions(); renderFinancePage(); });
   $('#finGroupFilter').addEventListener('change', renderFinancePage);
-  $('#finPrintBtn').addEventListener('click', printFinanceReport);
-}
-/* طباعة نظيفة لجدول الماليات المفلتر فقط مع إحصائياته — تُخفي كل شيء آخر أثناء الطباعة */
-function printFinanceReport() {
-  document.body.classList.add('printing-finance');
-  const cleanup = () => document.body.classList.remove('printing-finance');
-  window.addEventListener('afterprint', cleanup, { once: true });
-  setTimeout(() => { window.print(); setTimeout(cleanup, 500); }, 80);
-}
-function exportFinancePdf() {
-  if (!window.jspdf) { toast('⚠️ مكتبة تصدير PDF لم تُحمَّل بعد، حاول مرة أخرى', 'error'); return; }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  const fromDate = $('#finFromDate').value || '—';
-  const toDate = $('#finToDate').value || '—';
-  const teacherId = $('#finTeacherFilter').value || 'all';
-  const groupId = $('#finGroupFilter').value || 'all';
-  const fin = DB.getFinanceSummary($('#finFromDate').value || null, $('#finToDate').value || null, teacherId, groupId);
+  $('#finStudentDebtSearch').addEventListener('input', renderFinancePage);
+  $('#sessionSettlementGroupSelect').addEventListener('change', calculateGroupSettlement);
+  
+  const printAction = () => {
+    const now = new Date();
+    const header = $('#financePrintHeader');
+    const baseText = header.textContent.split(' | وقت الطباعة:')[0];
+    header.textContent = `${baseText} | وقت الطباعة: ${now.toLocaleTimeString('ar-EG')}`;
+    window.print();
+  };
 
-  doc.setFontSize(16);
-  doc.text('ATEF CENTER - Financial Report', 14, 16);
-  doc.setFontSize(10);
-  doc.text(`Period: ${fromDate}  to  ${toDate}`, 14, 24);
-  doc.text(`Total Collected: ${fin.totalCollected}   Expenses: ${fin.totalExpenses}   Net: ${fin.netProfit}   Outstanding: ${fin.totalOutstanding}`, 14, 30);
-
-  const rows = DB.getStudents().map(s => [s.student_code, s.name, s.grade_level || '-', String(s.total_debt || 0)]);
-  doc.autoTable({
-    head: [['Code', 'Name', 'Grade', 'Debt']],
-    body: rows,
-    startY: 36,
-    styles: { font: 'helvetica', fontSize: 9 },
-  });
-
-  doc.save(`atef-finance-report-${todayIso()}.pdf`);
-  toast('✅ تم تصدير التقرير PDF', 'success');
+  $('#finPrintBtn').addEventListener('click', printAction);
+  $('#printSettlementBtn').addEventListener('click', printAction);
 }
-function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 /* ==========================================================================
    Master table (admin)
@@ -994,39 +995,56 @@ function todayIso() { return new Date().toISOString().slice(0, 10); }
 function renderMasterTable() {
   const fromDate = $('#masterFromDate').value || null;
   const toDate = $('#masterToDate').value || null;
-  const rows = DB.getMasterTableRows(fromDate, toDate);
+  const studentCodeSearch = ($('#masterStudentSearch')?.value || '').trim().toLowerCase();
+
+  let rows = DB.getMasterTableRows(fromDate, toDate);
+
+  if (studentCodeSearch) {
+    rows = rows.filter(r => String(r.studentCode).toLowerCase().includes(studentCodeSearch));
+  }
+
   const body = $('#masterBody');
   $('#masterEmpty').classList.toggle('hidden', rows.length > 0);
   body.innerHTML = rows.map(r => `
     <tr>
-      <td>${escapeHtml(r.date)}</td><td>#${escapeHtml(r.studentCode)}</td><td>${escapeHtml(r.studentName)}</td>
-      <td>${escapeHtml(r.gradeLevel)}</td><td>${escapeHtml(r.teacherName)}</td><td>${escapeHtml(r.timeIn)}</td>
+      <td>${escapeHtml(r.date)}</td><td>#${escapeHtml(r.studentCode)}</td><td><b>${escapeHtml(r.studentName)}</b></td>
+      <td>${escapeHtml(r.gradeLevel)}</td><td>${escapeHtml(r.teacherName)}</td>
       <td>${escapeHtml(r.attendance)}</td><td>${fmt(r.amountPaid)}</td><td>${escapeHtml(r.homework)}</td>
-      <td>${escapeHtml(r.exam)}</td><td>${escapeHtml(r.notes || '—')}</td><td>${escapeHtml(r.approved)}</td>
-      <td>${fmt(r.totalDebt)}</td>
+      <td>${escapeHtml(r.exam)}</td><td>${escapeHtml(r.notes || '—')}</td><td>${fmt(r.totalDebt)}</td>
     </tr>
   `).join('');
+
+  if (studentCodeSearch && rows.length > 0) {
+    $('#masterPrintHeader').textContent = `اسم الطالب: ${rows[0].studentName} | كود: #${rows[0].studentCode} | الفترة: ${fromDate || 'الكل'} إلى ${toDate || 'الكل'}`;
+  } else {
+    $('#masterPrintHeader').textContent = `الشيت المجمع الشامل للسنتر`;
+  }
 }
+
 function initMasterTable() {
   $('#masterFilterBtn').addEventListener('click', renderMasterTable);
+  $('#masterStudentSearch').addEventListener('input', renderMasterTable);
+  $('#printStudentReportBtn').addEventListener('click', () => {
+    if (!$('#masterStudentSearch').value) { toast('⚠️ أدخل كود الطالب أولاً للطباعة', 'error'); return; }
+    window.print();
+  });
   $('#exportMasterExcelBtn').addEventListener('click', exportMasterExcel);
 }
+
 function exportMasterExcel() {
-  if (!window.XLSX) { toast('⚠️ مكتبة تصدير Excel لم تُحمَّل بعد، حاول مرة أخرى', 'error'); return; }
+  if (!window.XLSX) { toast('⚠️ مكتبة تصدير Excel لم تُحمَّل بعد', 'error'); return; }
   const fromDate = $('#masterFromDate').value || null;
   const toDate = $('#masterToDate').value || null;
   const rows = DB.getMasterTableRows(fromDate, toDate).map(r => ({
     'التاريخ': r.date, 'كود الطالب': r.studentCode, 'الاسم': r.studentName, 'الصف': r.gradeLevel,
-    'المدرس': r.teacherName, 'وقت الحضور': r.timeIn, 'الحضور': r.attendance, 'المدفوع': r.amountPaid,
-    'الواجب': r.homework, 'الامتحان': r.exam, 'ملاحظات': r.notes, 'معتمد': r.approved, 'المديونية الحالية': r.totalDebt,
+    'المدرس': r.teacherName, 'الحضور': r.attendance, 'المدفوع': r.amountPaid,
+    'الواجب': r.homework, 'الامتحان': r.exam, 'ملاحظات': r.notes, 'المديونية': r.totalDebt,
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Master Sheet');
-  XLSX.writeFile(wb, `atef-master-sheet-${todayIso()}.xlsx`);
-  toast('✅ تم تصدير الشيت المجمع', 'success');
+  XLSX.writeFile(wb, `atef-master-sheet.xlsx`);
 }
-
 /* ==========================================================================
    Settings page
    ========================================================================== */
@@ -1239,7 +1257,7 @@ async function saveCardRecord(card, studentId) {
   if (!groupId) { toast('⚠️ الطالب غير مسجل بأي مجموعة تُقام اليوم، لا يمكن الحفظ', 'error'); return; }
 
   const isPresent = card.querySelector('[data-field="presentCheck"]').checked;
-  const paidNow = Number(card.querySelector('[data-field="paidNow"]').value) || 0;
+  const paidNow = Math.max(0, Number(card.querySelector('[data-field="paidNow"]').value) || 0);
   const paymentStatus = paidNow > 0 ? 'paid' : 'unpaid';
 
   const record = await DB.saveRecord({
@@ -1595,7 +1613,7 @@ function renderTeacherStudentsList(groupId) {
     pill.textContent = status.label;
     pill.className = `status-chip ${status.cls}`.trim();
 
-    const existing = DB.getPendingRecordForStudentToday(student.id) || DB.getApprovedRecordForStudentToday(student.id);
+    const existing = DB.getPendingRecordForStudentToday(student.id, groupId) || DB.getApprovedRecordForStudentToday(student.id, groupId);
     if (existing) {
       node.querySelector('[data-field="homeworkMax"]').value = existing.homework_out_of ?? 20;
       node.querySelector('[data-field="examMax"]').value = existing.exam_out_of ?? 20;
@@ -1837,7 +1855,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initGroupModal();
   initGradeLevelsPage();
   initSecretariesPage();
-  initExpenseModal();
   initFinanceFilters();
   initMasterTable();
   initSettingsPage();
