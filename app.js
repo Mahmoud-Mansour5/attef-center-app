@@ -275,7 +275,12 @@ function renderStudentsDirGroupFilterOptions() {
 }
 function debtBadgeHtml(debt) {
   const d = Number(debt) || 0;
-  return `<span class="debt-badge ${d <= 0 ? 'zero' : ''}">${d > 0 ? fmt(d) + ' ج' : 'لا يوجد'}</span>`;
+  if (d > 0) {
+    return `<span class="debt-badge" style="background:var(--danger-bg);color:var(--danger); direction:ltr; display:inline-block;">-${fmt(d)} ج</span>`;
+  } else if (d < 0) {
+    return `<span class="debt-badge" style="background:var(--success-bg);color:var(--success); direction:ltr; display:inline-block;">+${fmt(Math.abs(d))} ج</span>`;
+  }
+  return `<span class="debt-badge zero">0 ج</span>`;
 }
 function renderStudentsDirectory() {
   renderStudentsDirGroupFilterOptions();
@@ -332,7 +337,8 @@ function openStudentFinanceModal(studentId) {
   if (!student) return;
   editingStudentFinanceId = student.id;
   $('#sfStudentName').textContent = `${student.name} — #${student.student_code}`;
-  $('#sfCurrentDebt').textContent = fmt(student.total_debt);
+  const sd = Number(student.total_debt) || 0;
+  $('#sfCurrentDebt').innerHTML = sd > 0 ? `<span style="direction:ltr; display:inline-block; color:var(--danger); font-weight:bold;">-${fmt(sd)}</span>` : sd < 0 ? `<span style="direction:ltr; display:inline-block; color:var(--success); font-weight:bold;">+${fmt(Math.abs(sd))}</span>` : '0';
   $('#sfStudentCode').value = student.student_code || '';
   $('#sfDebt').value = student.total_debt || 0;
   $('#sfGradeLevel').value = student.grade_level || '';
@@ -1010,7 +1016,7 @@ function renderMasterTable() {
       <td>${escapeHtml(r.date)}</td><td>#${escapeHtml(r.studentCode)}</td><td><b>${escapeHtml(r.studentName)}</b></td>
       <td>${escapeHtml(r.gradeLevel)}</td><td>${escapeHtml(r.teacherName)}</td>
       <td>${escapeHtml(r.attendance)}</td><td>${fmt(r.amountPaid)}</td><td>${escapeHtml(r.homework)}</td>
-      <td>${escapeHtml(r.exam)}</td><td>${escapeHtml(r.notes || '—')}</td><td>${fmt(r.totalDebt)}</td>
+      <td>${escapeHtml(r.exam)}</td><td>${escapeHtml(r.notes || '—')}</td><td><span style="direction:ltr; display:inline-block; font-weight:bold; color:${r.totalDebt > 0 ? 'var(--danger)' : r.totalDebt < 0 ? 'var(--success)' : 'inherit'}">${r.totalDebt > 0 ? '-' : r.totalDebt < 0 ? '+' : ''}${fmt(Math.abs(r.totalDebt))}</span></td>
     </tr>
   `).join('');
 
@@ -1038,7 +1044,7 @@ function exportMasterExcel() {
   const rows = DB.getMasterTableRows(fromDate, toDate).map(r => ({
     'التاريخ': r.date, 'كود الطالب': r.studentCode, 'الاسم': r.studentName, 'الصف': r.gradeLevel,
     'المدرس': r.teacherName, 'الحضور': r.attendance, 'المدفوع': r.amountPaid,
-    'الواجب': r.homework, 'الامتحان': r.exam, 'ملاحظات': r.notes, 'المديونية': r.totalDebt,
+    'الواجب': r.homework, 'الامتحان': r.exam, 'ملاحظات': r.notes, 'المديونية': r.totalDebt > 0 ? -Math.abs(r.totalDebt) : Math.abs(r.totalDebt),
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -1650,15 +1656,14 @@ function initTeacherPortalDelegation() {
 
   $('#teacherSubmitAllBtn').addEventListener('click', async () => {
     const groupId = $('#teacherGroupSelect').value;
-    // ملاحظة: نأخذ كل طلاب المجموعة (بدون فلتر البحث) حتى لا يفوت أي طالب من التقرير النهائي
     const students = groupId ? DB.getStudentsByGroup(groupId) : [];
     if (!students.length) return;
     const ok = await askConfirm('إرسال التقرير للأدمن؟', `سيتم إرسال تقرير ${students.length} طالب للاعتماد. أي طالب لم يمر على السكرتير سيُسجَّل غائباً تلقائياً.`);
     if (!ok) return;
 
-    // الحالة 1 والحالة 2: نحفظ درجات كل طالب ظاهر حالياً في القائمة (سواء وضع المدرس درجات أو تركها فارغة)
-    const cards = $$('#teacherStudentsList .student-card');
-    for (const card of cards) {
+    // 1. حفظ درجات الطلاب الظاهرين حالياً في شاشة البحث
+    const currentCards = $$('#teacherStudentsList .student-card');
+    for (const card of currentCards) {
       const studentId = card.dataset.id;
       await DB.submitTeacherReport(studentId, {
         groupId,
@@ -1671,7 +1676,14 @@ function initTeacherPortalDelegation() {
       });
     }
 
-    // الحالة 3: أي طالب بالمجموعة لم يمر على السكرتير إطلاقاً اليوم يُسجَّل غائباً تلقائياً الآن
+    // 2. تصفير خانة البحث تلقائياً لإعادة إظهار كافة طلاب المجموعة
+    if ($('#teacherStudentSearch').value) {
+      $('#teacherStudentSearch').value = '';
+      $('#teacherClearSearchBtn').classList.add('hidden');
+      renderTeacherStudentsList(groupId);
+    }
+
+    // 3. إنهاء التقرير للمجموعة (الطالب الحاضر أو المسجل سابقاً لن يُمَس، والغائب الحقيقي فقط هو من يُسجَّل)
     const autoAbsent = await DB.finalizeGroupReport(groupId, session?.full_name || 'المدرس');
     if (autoAbsent.length) {
       toast(`📤 تم إرسال التقرير — وتسجيل ${autoAbsent.length} طالب غائباً تلقائياً`, 'success');
