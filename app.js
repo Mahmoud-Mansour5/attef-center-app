@@ -462,9 +462,11 @@ function renderTeachersDirectory() {
   $('#teachersEmpty').classList.toggle('hidden', teachers.length > 0);
 
   teachers.forEach(t => {
+    // نجلب اسم المادة
     const subject = DB.getSubjects().find(sub => sub.id === t.subject_id);
     const studentsCount = DB.getStudentsCountForTeacher(t.id);
     const groupsCount = DB.getGroupsByTeacher(t.id).length;
+    
     const card = document.createElement('div');
     card.className = 'dir-card glass-panel tilt shine';
     card.innerHTML = `
@@ -472,7 +474,9 @@ function renderTeachersDirectory() {
         <div class="dir-avatar">${initials(t.name)}</div>
         <div>
           <div class="dir-name">${escapeHtml(t.name)}</div>
-          <div class="dir-role">${escapeHtml(subject?.name || 'بدون مادة')} · ${escapeHtml(t.grade_level || '—')} · ${escapeHtml(t.phone || '—')}</div>
+          <div class="dir-role">📖 ${escapeHtml(subject?.name || 'بدون مادة')}</div>
+          <div class="dir-role" style="margin-top:4px; font-size:12px; font-weight:600; color:var(--ink-secondary);">المراحل: ${escapeHtml(t.grade_level || '—')}</div>
+          <div class="dir-role" style="margin-top:4px;">📞 ${escapeHtml(t.phone || '—')}</div>
         </div>
       </div>
       <div class="dir-stats-row">
@@ -509,11 +513,35 @@ function openTeacherModal(teacherId) {
   const t = teacherId ? DB.getTeacherById(teacherId) : null;
   $('#teacherModalTitle').textContent = t ? '✏️ تعديل بيانات المدرس' : '➕ إضافة مدرس جديد';
   $('#teacherName').value = t?.name || '';
-  fillGradeLevelSelectDynamic($('#teacherGradeLevel'), t?.grade_level_id);
-  fillSubjectSelect($('#teacherSubjectSelect'), t?.subject_id, t?.grade_level_id);
-  $('#teacherSubjectSelect').disabled = !t?.grade_level_id;
   $('#teacherPhone').value = t?.phone || '';
   $('#teacherProfitPercentage').value = t?.profit_percentage ?? 50;
+
+  // 1. جلب كل المواد بدون تكرار الأسماء (لو المادة متكررة في كذا سنة نعرضها مرة واحدة)
+  const uniqueSubjects = [];
+  const seenNames = new Set();
+  DB.getSubjects().forEach(s => {
+    if (!seenNames.has(s.name)) { seenNames.add(s.name); uniqueSubjects.push(s); }
+  });
+  const subjSelect = $('#teacherSubjectSelect');
+  subjSelect.innerHTML = '<option value="">— اختر المادة —</option>' + 
+    uniqueSubjects.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+  
+  if (t?.subject_id) subjSelect.value = t.subject_id;
+
+  // 2. بناء مربعات الاختيار (Checkboxes) للمراحل الدراسية
+  const allGrades = DB.getGradeLevelRows();
+  const checkboxesContainer = $('#teacherGradeLevelsCheckboxes');
+  // لو بنعدل مدرس، بنقطع النص المحفوظ عشان نعلم على الـ Checkboxes الصح
+  const teacherGrades = t?.grade_level ? t.grade_level.split('،').map(g => g.trim()) : []; 
+
+  checkboxesContainer.innerHTML = allGrades.map(g => {
+    const isChecked = teacherGrades.includes(g.name) ? 'checked' : '';
+    return `<label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:600; font-size:13px;">
+              <input type="checkbox" value="${escapeHtml(g.name)}" class="teacher-grade-cb" ${isChecked}>
+              ${escapeHtml(g.name)}
+            </label>`;
+  }).join('');
+
   const existingUser = t ? DB.getUsers().find(u => u.teacher_id === t.id) : null;
   $('#teacherUsername').value = existingUser?.username || '';
   $('#teacherPassword').value = existingUser?.password_hash || '';
@@ -523,29 +551,28 @@ function initTeacherModal() {
   $('#addTeacherBtn').addEventListener('click', () => openTeacherModal(null));
   $('#teacherModalClose').addEventListener('click', () => $('#teacherModal').classList.add('hidden'));
 
-  // سلسلة: اختيار السنة الدراسية أولاً، ثم تُفعَّل قائمة المواد الخاصة بها
-  $('#teacherGradeLevel').addEventListener('change', () => {
-    const gradeLevelId = $('#teacherGradeLevel').value;
-    fillSubjectSelect($('#teacherSubjectSelect'), '', gradeLevelId);
-    $('#teacherSubjectSelect').disabled = !gradeLevelId;
-  });
-
   $('#saveTeacherBtn').addEventListener('click', async () => {
     const name = $('#teacherName').value.trim();
-    const gradeLevelId = $('#teacherGradeLevel').value || null;
     const subjectId = $('#teacherSubjectSelect').value || null;
     const username = $('#teacherUsername').value.trim();
     const password = $('#teacherPassword').value.trim();
 
-    if (!name) { toast('⚠️ من فضلك أدخل اسم المدرس', 'error'); return; }
-    if (!gradeLevelId || !subjectId) { toast('⚠️ من فضلك اختر السنة الدراسية والمادة', 'error'); return; }
-    // حساب الدخول إجباري لضمان امتلاك كل مدرس حساباً فعالاً
-    if (!username || !password) { toast('⚠️ اسم المستخدم وكلمة المرور إجباريان لكل مدرس', 'error'); return; }
+    // استخراج المراحل الدراسية اللي الأدمن علّم عليها وجمعها كنص مفصول بفاصلة
+    const selectedGrades = $$('.teacher-grade-cb:checked').map(cb => cb.value);
+    const gradeLevelString = selectedGrades.join('، '); 
 
-    const gradeLevel = DB.getGradeLevelById(gradeLevelId);
+    if (!name) { toast('⚠️ من فضلك أدخل اسم المدرس', 'error'); return; }
+    if (!subjectId) { toast('⚠️ من فضلك اختر المادة', 'error'); return; }
+    if (selectedGrades.length === 0) { toast('⚠️ يجب اختيار مرحلة دراسية واحدة على الأقل', 'error'); return; }
+    if (!username || !password) { toast('⚠️ اسم المستخدم وكلمة المرور إجباريان', 'error'); return; }
+
     const payload = {
-      name, subjectId, gradeLevelId, gradeLevel: gradeLevel?.name || null,
-      phone: $('#teacherPhone').value.trim(), profitPercentage: Number($('#teacherProfitPercentage').value) || 0,
+      name, 
+      subjectId, 
+      gradeLevel: gradeLevelString, 
+      gradeLevelId: null, // لا نحتاجه لأننا نعتمد على النص المتعدد الآن
+      phone: $('#teacherPhone').value.trim(), 
+      profitPercentage: Number($('#teacherProfitPercentage').value) || 0,
     };
 
     let teacher;
@@ -559,6 +586,7 @@ function initTeacherModal() {
       const res = await DB.addUser({ username, password, role: 'teacher', name: teacher.name, teacherId: teacher.id });
       if (res && res.error) { toast('⚠️ اسم المستخدم مستخدم بالفعل', 'error'); return; }
     }
+    
     $('#teacherModal').classList.add('hidden');
     toast('✅ تم حفظ بيانات المدرس وحساب الدخول', 'success');
     renderTeachersDirectory();
@@ -1105,10 +1133,12 @@ function renderStudentsList(filterOverride) {
     pill.className = `status-chip ${status.cls}`.trim();
 
     // فلترة مجاميع اليوم فقط: لو مادة واحدة تُختار تلقائياً، لو أكثر تظهر كقائمة منسدلة، لو ولا مجموعة تظهر رسالة تنبيه
-    node.querySelector('[data-role="todayDayLabel"]').textContent = todayName;
+    // إظهار كل المجاميع المشترك بها الطالب لتسهيل التعويض أو الحضور في غير يومه
+    node.querySelector('[data-role="todayDayLabel"]').textContent = 'كل المجموعات';
     const groupSelect = node.querySelector('[data-field="todayGroup"]');
     const noGroupNote = node.querySelector('[data-role="noGroupTodayNote"]');
-    const todaysGroups = DB.getGroupsForStudentToday(student.id);
+    noGroupNote.textContent = '⚠️ الطالب غير مسجل بأي مجموعة'; // تعديل النص
+    const todaysGroups = DB.getGroupsForStudent(student.id); // جلب كل المجاميع بدون تقييد باليوم
     if (todaysGroups.length) {
       groupSelect.innerHTML = todaysGroups.map(g => {
         const teacher = DB.getTeacherById(g.teacher_id);

@@ -455,15 +455,40 @@ const DB = (() => {
 
       // خصم المبلغ المدفوع الآن من مديونية الطالب فوراً عند الحفظ (وليس فقط عند الاعتماد)
       // + تسجيل حركة تفصيلية في student_payments لظهورها في تقرير الماليات
-      if (record.amountPaid && Number(record.amountPaid) > 0) {
-        await this.adjustStudentDebt(record.studentId, -Number(record.amountPaid));
+      // ⚠️ تصليح حساب المديونية الشامل (إضافة سعر الحصة وخصم المدفوع)
+      const isNewRecord = !existing;
+      const group = this.getGroupById(groupId);
+      const sessionPrice = Number(group?.price_per_session) || 0;
+      
+      const oldPaid = existing?.amount_paid ? Number(existing.amount_paid) : 0;
+      const newPaid = record.amountPaid !== undefined ? Number(record.amountPaid) : oldPaid;
+      
+      let debtChange = 0;
+      
+      // 1. لو سجل جديد، نضيف سعر الحصة على المديونية
+      if (isNewRecord) {
+        debtChange += sessionPrice;
+      }
+      
+      // 2. نخصم الفارق بين المبلغ المدفوع حالياً والقديم
+      debtChange -= (newPaid - oldPaid);
+
+      // 3. تحديث المديونية الكلية للطالب
+      if (debtChange !== 0) {
+        await this.adjustStudentDebt(record.studentId, debtChange);
+      }
+
+      // 4. تسجيل عملية الدفع في سجل الماليات التفصيلي
+      const extraPaid = newPaid - oldPaid;
+      if (extraPaid > 0) {
         await this.addPayment({
           studentId: record.studentId,
-          amount: Number(record.amountPaid),
+          amount: extraPaid,
           secretaryId: record.secretaryId ?? null,
-          notes: record.paymentNotes || '',
+          notes: record.paymentNotes || (isNewRecord ? 'دفع أثناء الحضور' : 'تحديث دفعة'),
         });
       }
+
       return data;
     },
     async updateRecord(id, updates) {
