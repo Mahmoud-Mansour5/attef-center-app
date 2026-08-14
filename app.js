@@ -161,7 +161,7 @@ function logout() {
 function applyCenterBranding() {
   const info = DB.getCenterInfo();
   $$('.login-brand').forEach(el => el.innerHTML = `${info.nameEn.split(' ')[0]} <span>${info.nameEn.split(' ').slice(1).join(' ')}</span>`);
-  document.title = `${info.nameEn} — ${info.nameAr} | نظام إدارة السنتر التعليمي`;
+  document.title = 'سناتر عاطف التعليمية';
 }
 
 /* ==========================================================================
