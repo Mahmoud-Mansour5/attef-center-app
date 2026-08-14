@@ -210,8 +210,9 @@ html[data-theme="dark"] .icon-btn, html[data-theme="dark"] .x-btn { background: 
   overflow: hidden;
 }
 /* ---------- Sidebar (transparent glass) ---------- */
+/* ---------- Sidebar (transparent glass) ---------- */
 .sidebar {
-  height: 100vh !important;
+  height: 100dvh !important; 
   position: sticky;
   top: 0;
   display: flex;
@@ -219,6 +220,7 @@ html[data-theme="dark"] .icon-btn, html[data-theme="dark"] .x-btn { background: 
   justify-content: space-between;
   z-index: 50;
   overflow-y: auto;
+  padding-bottom: 40px; /* تقدر تزود الرقم ده لـ 80px لو حسيت الزرار لسه مستخبي */
 }
 html[data-theme="dark"] .sidebar { background: linear-gradient(180deg, rgba(40,42,49,0.5), rgba(25,26,31,0.35)); }
 .sidebar.collapsed { width: var(--sidebar-w-collapsed); flex-basis: var(--sidebar-w-collapsed); }
@@ -527,7 +529,7 @@ html[data-theme="dark"] .chip { background: linear-gradient(160deg, rgba(255,255
 
 /* ============ Responsive ============ */
 @media (max-width: 900px) {
-  .sidebar { position: fixed; top: 0; bottom: 0; right: 0; height: 100vh; transform: translateX(0); z-index: 60; }
+  .sidebar { position: fixed; top: 0; bottom: 0; right: 0; height: 100dvh; transform: translateX(0); z-index: 60; padding-bottom: 80px; }
   html[dir="rtl"] .sidebar.mobile-hidden { transform: translateX(100%); }
   .sidebar.mobile-open { transform: translateX(0); }
   .sidebar:not(.mobile-open) { transform: translateX(100%); }
