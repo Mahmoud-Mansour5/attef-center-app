@@ -882,8 +882,7 @@ function renderFinanceFilterOptions() {
   groupSel.innerHTML = '<option value="all">كل المجموعات</option>' + groups.map(g => {
     const teacher = DB.getTeacherById(g.teacher_id);
     const subject = DB.getSubjects().find(s => s.id === g.subject_id);
-    const label = `${subject?.name || g.grade_level || 'مجموعة'} — ${teacher ? teacher.name : ''} — ${g.day_of_week || ''}`;
-    return `<option value="${g.id}">${escapeHtml(label)}</option>`;
+    const label = `${g.grade_level || 'بدون مرحلة'} — ${subject?.name || 'مادة'} — ${g.day_of_week || ''} (${g.time_start || 'بدون موعد'})`;    return `<option value="${g.id}">${escapeHtml(label)}</option>`;
   }).join('');
   groupSel.value = curGroup;
 }
@@ -989,7 +988,10 @@ function initFinanceFilters() {
     const header = $('#financePrintHeader');
     const baseText = header.textContent.split(' | وقت الطباعة:')[0];
     header.textContent = `${baseText} | وقت الطباعة: ${now.toLocaleTimeString('ar-EG')}`;
+    
+    document.body.classList.add('printing-finance'); // إضافة وسم الطباعة المالية
     window.print();
+    setTimeout(() => document.body.classList.remove('printing-finance'), 1000);
   };
 
   $('#finPrintBtn').addEventListener('click', printAction);
@@ -1812,39 +1814,118 @@ function initApprovalsActions() {
 
 function openGroupDetailsModal(groupId) {
   const pending = DB.getPendingRecords().filter(r => String(r.group_id) === String(groupId));
-  
-  // لسهولة التطبيق مؤقتاً، سنعيد استخدام الحاوية المخفية #dashPendingPreview (أو يمكنك إنشاء Modal مخصص لها)
-  // لكن لعرضها بشكل منفصل، سنقوم بتوليد قائمة الطلاب وفتح نافذة.
-  let html = pending.map(record => {
-    const student = DB.getStudentById(record.student_id);
-    return `
-      <div class="approval-card glass-panel" style="margin-bottom:10px;" data-id="${record.id}">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <b>${escapeHtml(student?.name || 'طالب')}</b> (#${escapeHtml(student?.student_code || '')})
-            <span class="pill" style="margin-right:10px;">${record.attendance === 'present' ? '✅ حاضر' : record.attendance === 'absent' ? '❌ غائب' : '—'}</span>
-          </div>
-          <div>
-            <button class="action-btn edit-btn" style="padding:6px 12px; font-size:11px;" onclick="openEditModal('${record.id}')">✏️ تعديل</button>
-            <button class="action-btn approve-btn" style="padding:6px 12px; font-size:11px;" onclick="DB.approveRecord('${record.id}').then(()=>openGroupDetailsModal('${groupId}'))">✅ اعتماد</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  const group = DB.getGroupById(groupId);
 
-  // استغلال نافذة التأكيد أو إنشاء نافذة جديدة لعرضهم
-  $('#confirmTitle').textContent = 'تفاصيل المجموعة وتعديل الطلاب';
-  $('#confirmMessage').innerHTML = `<div style="max-height: 400px; overflow-y: auto; text-align: right;">${html}</div>`;
-  $('#confirmOkBtn').classList.add('hidden'); // إخفاء زر التأكيد مؤقتاً
-  $('#confirmCancelBtn').textContent = 'إغلاق';
-  $('#confirmCancelBtn').onclick = () => {
-    $('#confirmModal').classList.add('hidden');
-    $('#confirmOkBtn').classList.remove('hidden');
-    renderPage(currentPage);
-  };
-  $('#confirmModal').classList.remove('hidden');
+  // إزالة أي شاشة سابقة إذا كانت مفتوحة
+  const oldModal = document.getElementById('dynamicGroupModal');
+  if (oldModal) oldModal.remove();
+
+  // إنشاء الشاشة المنبثقة الجديدة
+  const modal = document.createElement('div');
+  modal.id = 'dynamicGroupModal';
+  modal.className = 'modal-overlay';
+  modal.style.zIndex = '1000';
+
+  let html = `
+    <div class="glass-panel" style="width: 95%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="panel-header">
+        <h2>📝 تفاصيل واعتماد: ${escapeHtml(group?.grade_level || 'مجموعة')}</h2>
+        <button class="x-btn" onclick="document.getElementById('dynamicGroupModal').remove(); renderPage(currentPage);">✕</button>
+      </div>
+      <div class="panel-body" style="overflow-y: auto; flex: 1; padding: 20px; background: var(--bg-page);">
+  `;
+
+  if (pending.length === 0) {
+     html += `<div class="empty-state">لا توجد سجلات معلقة لهذه المجموعة</div>`;
+  } else {
+     html += `<div style="display: flex; flex-direction: column; gap: 16px;">`;
+     pending.forEach(record => {
+       const student = DB.getStudentById(record.student_id);
+       
+       // معالجة الدرجات الفارغة (null)
+       const exGrade = record.exam_grade !== null && record.exam_grade !== undefined ? record.exam_grade : '';
+       const hwGrade = record.homework_grade !== null && record.homework_grade !== undefined ? record.homework_grade : '';
+       
+       html += `
+         <div class="dir-card glass-panel" id="grp-rec-${record.id}" style="padding: 16px;">
+           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+             <div style="font-weight: 900; font-size: 16px;">
+               ${escapeHtml(student?.name || 'طالب')} <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student?.student_code || '')})</span>
+             </div>
+             <div style="display:flex; gap: 8px;">
+                <button class="ghost-btn" style="padding: 8px 16px;" onclick="window.quickSave('${record.id}')">💾 حفظ التعديلات</button>
+                <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);" onclick="window.quickApprove('${record.id}')">✅ اعتماد</button>
+             </div>
+           </div>
+
+           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+             <div class="form-group" style="margin:0;">
+               <label>حالة الحضور</label>
+               <select class="field" id="att-${record.id}">
+                 <option value="present" ${record.attendance === 'present' ? 'selected' : ''}>✅ حاضر</option>
+                 <option value="absent" ${record.attendance === 'absent' ? 'selected' : ''}>❌ غائب</option>
+                 <option value="none" ${record.attendance === 'none' ? 'selected' : ''}>— لم يسجل</option>
+               </select>
+             </div>
+             <div class="form-group" style="margin:0;">
+               <label>الامتحان (من ${record.exam_out_of || 20})</label>
+               <input type="number" class="field" id="ex-${record.id}" value="${exGrade}" placeholder="لم يمتحن">
+             </div>
+             <div class="form-group" style="margin:0;">
+               <label>الواجب (من ${record.homework_out_of || 20})</label>
+               <input type="number" class="field" id="hw-${record.id}" value="${hwGrade}" placeholder="بدون واجب">
+             </div>
+             <div class="form-group" style="margin:0; grid-column: 1 / -1;">
+               <label>ملاحظات المدرس</label>
+               <input type="text" class="field" id="nt-${record.id}" value="${escapeHtml(record.teacher_notes || '')}" placeholder="لا توجد ملاحظات">
+             </div>
+           </div>
+         </div>
+       `;
+     });
+     html += `</div>`;
+  }
+
+  html += `
+      </div>
+    </div>
+  `;
+
+  modal.innerHTML = html;
+  document.body.appendChild(modal);
 }
+
+// دوال مساعدة مرتبطة بالشاشة الجديدة (تُضاف مباشرة تحت الدالة السابقة)
+window.quickSave = async function(recordId) {
+  const att = document.getElementById('att-' + recordId).value;
+  const ex = document.getElementById('ex-' + recordId).value;
+  const hw = document.getElementById('hw-' + recordId).value;
+  const nt = document.getElementById('nt-' + recordId).value;
+
+  await DB.updateRecord(recordId, {
+    attendance: att,
+    examGrade: ex !== '' ? Number(ex) : null,
+    homeworkGrade: hw !== '' ? Number(hw) : null,
+    teacherNotes: nt
+  });
+  toast('✅ تم حفظ التعديلات بنجاح', 'success');
+};
+
+window.quickApprove = async function(recordId) {
+  // نقوم بحفظ التعديلات أولاً لضمان عدم ضياع أي تغيير تم إجراؤه
+  await window.quickSave(recordId); 
+  
+  await DB.approveRecord(recordId);
+  toast('✅ تم اعتماد الطالب', 'success');
+  
+  // إخفاء كارت الطالب بسلاسة بعد اعتماده
+  const card = document.getElementById('grp-rec-' + recordId);
+  if (card) {
+    card.style.opacity = '0.5';
+    card.style.pointerEvents = 'none';
+    setTimeout(() => card.remove(), 400);
+  }
+};
 /* ---------------- Edit modal ---------------- */
 function openEditModal(recordId) {
   const record = DB.getPendingRecords().find(r => String(r.id) === String(recordId));

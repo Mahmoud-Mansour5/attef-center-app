@@ -538,15 +538,16 @@ html[data-theme="dark"] .chip { background: linear-gradient(160deg, rgba(255,255
   .form-row { grid-template-columns: 1fr; }
 }
 @media print {
-  body:not(.printing-finance) * { visibility: hidden; }
-  body:not(.printing-finance) #qrViewCardPreview,
-  body:not(.printing-finance) #qrViewCardPreview *,
-  body:not(.printing-finance) #qrCardPreview,
-  body:not(.printing-finance) #qrCardPreview * { visibility: visible; }
-  body:not(.printing-finance) #qrViewCardPreview,
-  body:not(.printing-finance) #qrCardPreview { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); }
+  /* إخفاء كل شيء وقت طباعة كارت الـ QR فقط */
+  body.printing-qr * { visibility: hidden; }
+  body.printing-qr #qrViewCardPreview,
+  body.printing-qr #qrViewCardPreview *,
+  body.printing-qr #qrCardPreview,
+  body.printing-qr #qrCardPreview * { visibility: visible; }
+  body.printing-qr #qrViewCardPreview,
+  body.printing-qr #qrCardPreview { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); }
 
-  /* ---- Finance report clean print output ---- */
+  /* إعدادات طباعة التقارير المالية */
   .print-only-block { display: none; }
   body.printing-finance * { visibility: hidden; }
   body.printing-finance #financePrintArea, body.printing-finance #financePrintArea * { visibility: visible; }
