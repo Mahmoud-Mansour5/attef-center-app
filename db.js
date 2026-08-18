@@ -89,14 +89,38 @@ const DB = (() => {
     if (error) return logErr('student_groups', error);
     cache.studentGroups = data || [];
   }
+  // دالة مساعدة لحساب تاريخ من 30 يوم فاتوا
+  const getThirtyDaysAgoDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d;
+  };
+
   async function refreshDailyRecords() {
-    const { data, error } = await supabaseClient.from('daily_records').select('*').order('session_date', { ascending: false });
+    const thirtyDaysAgoStr = getThirtyDaysAgoDate().toISOString().slice(0, 10); // YYYY-MM-DD
+    
+    // هنجيب بس السجلات اللي تاريخها أكبر من أو يساوي 30 يوم فاتوا
+    const { data, error } = await supabaseClient
+      .from('daily_records')
+      .select('*')
+      .gte('session_date', thirtyDaysAgoStr) 
+      .order('session_date', { ascending: false });
+      
     if (error) return logErr('daily_records', error);
     cache.dailyRecords = data || [];
   }
+
   async function refreshStudentPayments() {
-    const { data, error } = await supabaseClient.from('student_payments').select('*').order('payment_date', { ascending: false });
-    if (error) { cache.studentPayments = []; return; } // الجدول جديد — تعطّل بهدوء لو لسه متوفرش
+    const thirtyDaysAgoISO = getThirtyDaysAgoDate().toISOString();
+    
+    // هنجيب المدفوعات لآخر 30 يوم بس
+    const { data, error } = await supabaseClient
+      .from('student_payments')
+      .select('*')
+      .gte('payment_date', thirtyDaysAgoISO)
+      .order('payment_date', { ascending: false });
+      
+    if (error) { cache.studentPayments = []; return; }
     cache.studentPayments = data || [];
   }
   async function refreshExpenses() {
@@ -498,6 +522,23 @@ const DB = (() => {
       return data;
     },
     async updateRecord(id, updates) {
+      const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
+      if (!existing) return null;
+
+      const group = this.getGroupById(existing.group_id);
+      const sessionPrice = Number(group?.price_per_session) || 0;
+
+      const oldPaid = Number(existing.amount_paid) || 0;
+      const newPaid = updates.amountPaid !== undefined ? Number(updates.amountPaid) : oldPaid;
+
+      const oldAttendance = existing.attendance || 'none';
+      const newAttendance = updates.attendance || oldAttendance;
+
+      // حساب التغير في رسوم الحصة والمدفوع
+      const oldCharge = oldAttendance === 'present' ? sessionPrice : 0;
+      const newCharge = newAttendance === 'present' ? sessionPrice : 0;
+      let debtChange = (newCharge - oldCharge) - (newPaid - oldPaid);
+
       const patch = {};
       if (updates.attendance !== undefined) patch.attendance = updates.attendance;
       if (updates.paymentStatus !== undefined) patch.payment_status = updates.paymentStatus;
@@ -506,17 +547,43 @@ const DB = (() => {
       if (updates.homeworkGrade !== undefined) patch.homework_grade = updates.homeworkGrade;
       if (updates.homeworkOutOf !== undefined) patch.homework_out_of = updates.homeworkOutOf;
       if (updates.teacherNotes !== undefined) patch.teacher_notes = updates.teacherNotes;
-      if (updates.amountPaid !== undefined) patch.amount_paid = Number(updates.amountPaid) || 0;
+      if (updates.amountPaid !== undefined) patch.amount_paid = newPaid;
+
       const { data, error } = await supabaseClient.from('daily_records').update(patch).eq('id', id).select().single();
       if (error) return logErr('updateRecord', error);
-      const idx = cache.dailyRecords.findIndex(r => r.id === id);
+
+      // تطبيق التعديل المالي على المديونية وسجل الدفعات
+      if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
+      if (newPaid - oldPaid !== 0) {
+        await this.addPayment({
+          studentId: existing.student_id,
+          amount: newPaid - oldPaid,
+          notes: 'تسوية رصيد (تعديل من الإدارة)'
+        });
+      }
+
+      const idx = cache.dailyRecords.findIndex(r => String(r.id) === String(id));
       if (idx > -1) cache.dailyRecords[idx] = data;
       return data;
     },
     async deleteRecord(id) {
+      const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
+      if (existing) {
+        const group = this.getGroupById(existing.group_id);
+        const sessionPrice = Number(group?.price_per_session) || 0;
+        const oldCharge = existing.attendance === 'present' ? sessionPrice : 0;
+        const oldPaid = Number(existing.amount_paid) || 0;
+        
+        // عكس التأثير المالي: طرح قيمة الحصة وإرجاع المدفوع للمديونية
+        let debtChange = -oldCharge + oldPaid;
+        if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
+        if (oldPaid > 0) {
+          await this.addPayment({ studentId: existing.student_id, amount: -oldPaid, notes: 'إلغاء سجل (حذف)' });
+        }
+      }
       const { error } = await supabaseClient.from('daily_records').delete().eq('id', id);
       if (error) return logErr('deleteRecord', error);
-      cache.dailyRecords = cache.dailyRecords.filter(r => r.id !== id);
+      cache.dailyRecords = cache.dailyRecords.filter(r => String(r.id) !== String(id));
     },
     /* اعتماد سجل: يخصم المتبقي غير المخصوم (إن وجد) من مديونية الطالب ويعلّم السجل معتمد */
     async approveRecord(id) {
@@ -738,6 +805,60 @@ const DB = (() => {
           totalDebt: student?.total_debt || 0,
         };
       });
+    },
+    /* ---------------- Master table (joins everything for export) ---------------- */
+    getMasterTableRows(fromDate, toDate) {
+      let records = cache.dailyRecords;
+      if (fromDate) records = records.filter(r => r.session_date >= fromDate);
+      if (toDate) records = records.filter(r => r.session_date <= toDate);
+
+      return records.map(r => {
+        const student = this.getStudentById(r.student_id);
+        const group = this.getGroupById(r.group_id);
+        const teacher = group ? this.getTeacherById(group.teacher_id) : null;
+        return {
+          date: r.session_date,
+          studentCode: student?.student_code || '—',
+          studentName: student?.name || '—',
+          gradeLevel: student?.grade_level || '—',
+          teacherName: teacher?.name || '—',
+          timeIn: r.time_in || '—',
+          attendance: r.attendance === 'present' ? 'حاضر' : r.attendance === 'absent' ? 'غائب' : '—',
+          amountPaid: r.amount_paid || 0,
+          homework: `${r.homework_grade ?? '—'}/${r.homework_out_of ?? '—'}`,
+          exam: `${r.exam_grade ?? '—'}/${r.exam_out_of ?? '—'}`,
+          notes: r.teacher_notes || '',
+          approved: r.is_approved ? 'نعم' : 'لا',
+          totalDebt: student?.total_debt || 0,
+        };
+      });
+    },
+
+    /* ---------------- Real-Time Sync ---------------- */
+    initRealtimeSync() {
+      // نتصنت على أي تغيير (إضافة، تعديل، حذف) في جدول السجلات اليومية
+      supabaseClient
+        .channel('daily_records_channel')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_records' }, (payload) => {
+          const record = payload.new;
+          const oldRecord = payload.old;
+          
+          if (payload.eventType === 'INSERT') {
+            // لو طالب جديد اتسجل، ضيفه لأول القائمة محلياً
+            cache.dailyRecords.unshift(record);
+          } else if (payload.eventType === 'UPDATE') {
+            // لو تم اعتماد أو تعديل طالب
+            const idx = cache.dailyRecords.findIndex(r => String(r.id) === String(record.id));
+            if (idx > -1) cache.dailyRecords[idx] = record;
+          } else if (payload.eventType === 'DELETE') {
+            // لو تم حذف سجل
+            cache.dailyRecords = cache.dailyRecords.filter(r => String(r.id) !== String(oldRecord.id));
+          }
+          
+          // نطلق حدث (Event) عشان المتصفح يعرف إن في تحديث حصل
+          window.dispatchEvent(new CustomEvent('db_updated'));
+        })
+        .subscribe();
     },
 
     /* ---------------- Misc ---------------- */

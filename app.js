@@ -150,6 +150,7 @@ async function enterApp() {
   const defaultPage = session.role === 'admin' ? 'dashboard' : session.role === 'secretary' ? 'reception' : 'teacherPortal';
   await goToPage(defaultPage);
   refreshSideBadge();
+  DB.initRealtimeSync(); // تفعيل المزامنة اللحظية بعد الدخول
 }
 function logout() {
   session = null;
@@ -1662,10 +1663,13 @@ function initTeacherPortalDelegation() {
     if (!ok) return;
 
     // 1. حفظ درجات الطلاب الظاهرين حالياً في شاشة البحث
+    // 1. حفظ درجات الطلاب الظاهرين حالياً في شاشة البحث
     const currentCards = $$('#teacherStudentsList .student-card');
+    let failedCount = 0; // العدّاد الجديد
+
     for (const card of currentCards) {
       const studentId = card.dataset.id;
-      await DB.submitTeacherReport(studentId, {
+      const result = await DB.submitTeacherReport(studentId, {
         groupId,
         examGrade: card.querySelector('[data-field="examGrade"]').value || null,
         examOutOf: Number(card.querySelector('[data-field="examMax"]').value) || 20,
@@ -1674,7 +1678,11 @@ function initTeacherPortalDelegation() {
         notes: card.querySelector('[data-field="notes"]').value,
         teacherName: session?.full_name || 'المدرس',
       });
+      
+      if (!result) failedCount++;
     }
+
+    // 2. تصفير خانة البحث تلقائياً لإعادة إظهار كافة طلاب المجموعة
 
     // 2. تصفير خانة البحث تلقائياً لإعادة إظهار كافة طلاب المجموعة
     if ($('#teacherStudentSearch').value) {
@@ -1685,7 +1693,9 @@ function initTeacherPortalDelegation() {
 
     // 3. إنهاء التقرير للمجموعة (الطالب الحاضر أو المسجل سابقاً لن يُمَس، والغائب الحقيقي فقط هو من يُسجَّل)
     const autoAbsent = await DB.finalizeGroupReport(groupId, session?.full_name || 'المدرس');
-    if (autoAbsent.length) {
+    if (failedCount > 0) {
+      toast(`⚠️ تم الإرسال ولكن فشل حفظ درجات ${failedCount} طالب (تأكد من اتصالك بالإنترنت)`, 'error');
+    } else if (autoAbsent.length) {
       toast(`📤 تم إرسال التقرير — وتسجيل ${autoAbsent.length} طالب غائباً تلقائياً`, 'success');
     } else {
       toast('📤 تم إرسال التقرير الكامل للإدارة', 'success');
@@ -1724,32 +1734,73 @@ function renderApprovalsPage() {
   const pending = DB.getPendingRecords();
   $('#noApprovals').classList.toggle('hidden', pending.length > 0);
   list.innerHTML = '';
+
+  // 1. تجميع السجلات المعلقة حسب المجموعة
+  const grouped = {};
   pending.forEach(record => {
-    const student = DB.getStudentById(record.student_id);
-    if (!student) return;
-    list.appendChild(buildApprovalCard(record));
+    const groupId = record.group_id;
+    if (!grouped[groupId]) grouped[groupId] = [];
+    grouped[groupId].push(record);
   });
+
+  // 2. بناء كارت لكل مجموعة
+  for (const [groupId, records] of Object.entries(grouped)) {
+    const group = DB.getGroupById(groupId);
+    if (!group) continue;
+    
+    const teacher = DB.getTeacherById(group.teacher_id);
+    const subject = DB.getSubjects().find(s => s.id === group.subject_id);
+    const groupLabel = `${subject?.name || group.grade_level || 'مجموعة'} — ${teacher ? teacher.name : 'بدون مدرس'}`;
+    
+    const presentCount = records.filter(r => r.attendance === 'present').length;
+    const absentCount = records.filter(r => r.attendance === 'absent').length;
+
+    const card = document.createElement('div');
+    card.className = 'dir-card glass-panel tilt shine';
+    card.innerHTML = `
+      <div class="dir-card-head">
+        <div class="dir-avatar">🏷️</div>
+        <div>
+          <div class="dir-name">${escapeHtml(groupLabel)}</div>
+          <div class="dir-role">📅 ${escapeHtml(group.day_of_week || '')} · ⏰ ${escapeHtml(group.time_start || '')}</div>
+        </div>
+      </div>
+      <div class="dir-stats-row">
+        <div class="dir-stat"><b>${records.length}</b><span>طالب معلق</span></div>
+        <div class="dir-stat"><b>${presentCount}</b><span style="color:var(--success)">حاضر</span></div>
+        <div class="dir-stat"><b>${absentCount}</b><span style="color:var(--danger)">غائب</span></div>
+      </div>
+      <div class="dir-actions">
+        <button class="ghost-btn" data-open-group-approvals="${groupId}">⚙️ تفاصيل وتعديل</button>
+        <button class="primary-btn" data-approve-group="${groupId}">✅ اعتماد المجموعة</button>
+      </div>
+    `;
+    list.appendChild(card);
+  }
   refreshSideBadge();
 }
 function initApprovalsActions() {
-  const handler = async (e) => {
-    const card = e.target.closest('.approval-card');
-    if (!card) return;
-    const id = card.dataset.id;
-    const actionBtn = e.target.closest('[data-action]');
+  $('#approvalsList').addEventListener('click', async (e) => {
+    const actionBtn = e.target.closest('[data-approve-group], [data-open-group-approvals]');
     if (!actionBtn) return;
 
-    if (actionBtn.dataset.action === 'approve') {
-      const record = await DB.approveRecord(id);
-      if (!record) { toast('⚠️ تعذر اعتماد السجل', 'error'); return; }
-      toast('✅ تم اعتماد السجل', 'success');
+    const groupId = actionBtn.dataset.approveGroup || actionBtn.dataset.openGroupApprovals;
+
+    if (actionBtn.dataset.approveGroup) {
+      const ok = await askConfirm('اعتماد المجموعة؟', 'سيتم اعتماد كافة السجلات المعلقة لهذه المجموعة.');
+      if (!ok) return;
+      const pending = DB.getPendingRecords().filter(r => String(r.group_id) === String(groupId));
+      for (const record of pending) {
+        await DB.approveRecord(record.id);
+      }
+      toast('✅ تم اعتماد المجموعة بنجاح', 'success');
       renderPage(currentPage);
-    } else if (actionBtn.dataset.action === 'edit') {
-      openEditModal(id);
+    } 
+    else if (actionBtn.dataset.openGroupApprovals) {
+      // نفتح نفس المودال أو شاشة تعرض طلاب المجموعة دي للتعديل الفردي
+      openGroupDetailsModal(groupId);
     }
-  };
-  $('#approvalsList').addEventListener('click', handler);
-  $('#dashPendingPreview').addEventListener('click', handler);
+  });
 
   $('#approveAllBtn').addEventListener('click', async () => {
     const pending = DB.getPendingRecords();
@@ -1759,6 +1810,41 @@ function initApprovalsActions() {
   });
 }
 
+function openGroupDetailsModal(groupId) {
+  const pending = DB.getPendingRecords().filter(r => String(r.group_id) === String(groupId));
+  
+  // لسهولة التطبيق مؤقتاً، سنعيد استخدام الحاوية المخفية #dashPendingPreview (أو يمكنك إنشاء Modal مخصص لها)
+  // لكن لعرضها بشكل منفصل، سنقوم بتوليد قائمة الطلاب وفتح نافذة.
+  let html = pending.map(record => {
+    const student = DB.getStudentById(record.student_id);
+    return `
+      <div class="approval-card glass-panel" style="margin-bottom:10px;" data-id="${record.id}">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <b>${escapeHtml(student?.name || 'طالب')}</b> (#${escapeHtml(student?.student_code || '')})
+            <span class="pill" style="margin-right:10px;">${record.attendance === 'present' ? '✅ حاضر' : record.attendance === 'absent' ? '❌ غائب' : '—'}</span>
+          </div>
+          <div>
+            <button class="action-btn edit-btn" style="padding:6px 12px; font-size:11px;" onclick="openEditModal('${record.id}')">✏️ تعديل</button>
+            <button class="action-btn approve-btn" style="padding:6px 12px; font-size:11px;" onclick="DB.approveRecord('${record.id}').then(()=>openGroupDetailsModal('${groupId}'))">✅ اعتماد</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // استغلال نافذة التأكيد أو إنشاء نافذة جديدة لعرضهم
+  $('#confirmTitle').textContent = 'تفاصيل المجموعة وتعديل الطلاب';
+  $('#confirmMessage').innerHTML = `<div style="max-height: 400px; overflow-y: auto; text-align: right;">${html}</div>`;
+  $('#confirmOkBtn').classList.add('hidden'); // إخفاء زر التأكيد مؤقتاً
+  $('#confirmCancelBtn').textContent = 'إغلاق';
+  $('#confirmCancelBtn').onclick = () => {
+    $('#confirmModal').classList.add('hidden');
+    $('#confirmOkBtn').classList.remove('hidden');
+    renderPage(currentPage);
+  };
+  $('#confirmModal').classList.remove('hidden');
+}
 /* ---------------- Edit modal ---------------- */
 function openEditModal(recordId) {
   const record = DB.getPendingRecords().find(r => String(r.id) === String(recordId));
@@ -1804,9 +1890,7 @@ function initEditModal() {
     });
 
     // إذا تغيّر المبلغ المدفوع، عدّل مديونية الطالب بالفارق
-    if (record && newPaid !== prevPaid) {
-      await DB.adjustStudentDebt(record.student_id, -(newPaid - prevPaid));
-    }
+    
 
     $('#editModal').classList.add('hidden');
     toast('✅ تم حفظ التعديلات', 'success');
@@ -1828,6 +1912,13 @@ function initEditModal() {
    Global wiring
    ========================================================================== */
 function initGlobalUi() {
+  // التحديث التلقائي للواجهة لما يجي إشعار من قاعدة البيانات
+  window.addEventListener('db_updated', () => {
+    if (typeof renderPage === 'function' && currentPage) {
+      renderPage(currentPage); // إعادة رسم الصفحة الحالية
+      refreshSideBadge();      // تحديث رقم الإشعارات في الجنب
+    }
+  });
   $('#themeToggleBtn').addEventListener('click', toggleTheme);
   $('#logoutBtn').addEventListener('click', logout);
   $('#qrViewModalClose').addEventListener('click', () => $('#qrViewModal').classList.add('hidden'));
