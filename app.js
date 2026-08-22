@@ -352,6 +352,7 @@ function openStudentFinanceModal(studentId) {
   const sd = Number(student.total_debt) || 0;
   $('#sfCurrentDebt').innerHTML = sd > 0 ? `<span style="direction:ltr; display:inline-block; color:var(--danger); font-weight:bold;">-${fmt(sd)}</span>` : sd < 0 ? `<span style="direction:ltr; display:inline-block; color:var(--success); font-weight:bold;">+${fmt(Math.abs(sd))}</span>` : '0';
   $('#sfStudentCode').value = student.student_code || '';
+  $('#sfEditStudentName').value = student.name || '';
   $('#sfDebt').value = student.total_debt || 0;
   $('#sfGradeLevel').value = student.grade_level || '';
   $('#sfParentPhone').value = student.parent_phone || '';
@@ -447,6 +448,7 @@ function initStudentFinanceModal() {
   $('#sfSaveBtn').addEventListener('click', async () => {
     if (!editingStudentFinanceId) return;
     await DB.updateStudent(editingStudentFinanceId, {
+      name: $('#sfEditStudentName').value.trim(),
       studentCode: $('#sfStudentCode').value.trim(),
       totalDebt: Number($('#sfDebt').value) || 0,
       gradeLevel: $('#sfGradeLevel').value.trim(),
@@ -1195,14 +1197,7 @@ function renderStudentsList(filterOverride) {
     const paidInput = node.querySelector('[data-field="paidNow"]');
     const remainingInput = node.querySelector('[data-field="remainingAmount"]');
     const presentCheck = node.querySelector('[data-field="presentCheck"]');
-    const recalcRemaining = () => {
-      const selectedOpt = groupSelect.options[groupSelect.selectedIndex];
-      const price = Number(selectedOpt?.dataset.price) || 0;
-      const paid = Number(paidInput.value) || 0;
-      remainingInput.value = price - paid;
-    };
-    groupSelect.addEventListener('change', recalcRemaining);
-    paidInput.addEventListener('input', recalcRemaining);
+    
 
     const timeChip = node.querySelector('[data-role="timeInChip"]');
     // يبحث عن سجل اليوم بحسب المجموعة المختارة حالياً (أول مجموعة اليوم افتراضياً)
@@ -1212,12 +1207,13 @@ function renderStudentsList(filterOverride) {
       if (existing.group_id) groupSelect.value = existing.group_id;
       if (existing.amount_paid) paidInput.value = existing.amount_paid;
       presentCheck.checked = existing.attendance === 'present';
+      if (existing.remaining_amount !== undefined) remainingInput.value = existing.remaining_amount;
       if (existing.time_in && existing.attendance === 'present') {
         timeChip.textContent = `⏱ وقت الحضور: ${formatTime12h(existing.time_in)}`;
         timeChip.classList.add('recorded');
       }
     }
-    recalcRemaining(); // تعيين "المبلغ المتبقي" الافتراضي = سعر حصة المجموعة المختارة
+     // تعيين "المبلغ المتبقي" الافتراضي = سعر حصة المجموعة المختارة
 
     list.appendChild(node);
   });
@@ -1278,6 +1274,7 @@ async function saveCardRecord(card, studentId) {
 
   const isPresent = card.querySelector('[data-field="presentCheck"]').checked;
   const paidNow = Math.max(0, Number(card.querySelector('[data-field="paidNow"]').value) || 0);
+  const remainingAmount = Math.max(0, Number(card.querySelector('[data-field="remainingAmount"]').value) || 0);
   const paymentStatus = paidNow > 0 ? 'paid' : 'unpaid';
 
   const record = await DB.saveRecord({
@@ -1286,6 +1283,7 @@ async function saveCardRecord(card, studentId) {
     attendance: isPresent ? 'present' : 'absent',
     paymentStatus,
     amountPaid: paidNow,
+    remainingAmount: remainingAmount,
     secretaryId: session?.id || null,
     secretaryName: session?.full_name || 'الاستقبال',
   });
@@ -1887,7 +1885,8 @@ function openGroupDetailsModal(groupId) {
          <div class="dir-card glass-panel" id="grp-rec-${recordId}" style="padding: 16px; ${isApproved ? 'opacity: 0.6; border: 1px solid var(--success);' : ''}">
            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px;">
              <div style="font-weight: 900; font-size: 16px;">
-               ${escapeHtml(student.name)} <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student.student_code)})</span>
+               <span id="st-name-${student.id}">${escapeHtml(student.name)}</span>  <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student.student_code)})</span>
+
                ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
                ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ غائب (لم يُسجل اليوم)</span>' : ''}
              </div>
@@ -1911,6 +1910,10 @@ function openGroupDetailsModal(groupId) {
                <label>المدفوع (ج)</label>
                <input type="number" class="field" id="paid-${recordId}" value="${amountPaid}" placeholder="0" ${isApproved ? 'disabled' : ''}>
              </div>
+             <div class="form-group" style="margin:0;">
+           <label>المتبقي (دين)</label>
+           <input type="number" class="field" id="rm-${recordId}" value="${record ? (record.remaining_amount || 0) : 0}" placeholder="0" ${isApproved ? 'disabled' : ''}>
+            </div>
              <div class="form-group" style="margin:0;">
                <label>الامتحان</label>
                <input type="number" class="field" id="ex-${recordId}" value="${exGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
@@ -1942,36 +1945,32 @@ function openGroupDetailsModal(groupId) {
 window.quickSave = async function(recordId, studentId, groupId) {
   const att = document.getElementById('att-' + recordId).value;
   const paidVal = document.getElementById('paid-' + recordId).value;
+  const rmVal = document.getElementById('rm-' + recordId) ? document.getElementById('rm-' + recordId).value : 0;
   const ex = document.getElementById('ex-' + recordId).value;
   const hw = document.getElementById('hw-' + recordId).value;
   const nt = document.getElementById('nt-' + recordId).value;
 
   let finalRecordId = recordId;
   const amountPaid = paidVal !== '' ? Number(paidVal) : 0;
+  const remainingAmount = rmVal !== '' ? Number(rmVal) : 0;
   const paymentStatus = amountPaid > 0 ? 'paid' : 'unpaid';
 
   if (recordId.startsWith('new-')) {
-    // إنشاء سجل جديد تماماً للطالب اللي كان ملوش سجل اليوم
     const rec = await DB.saveRecord({
-      studentId,
-      groupId,
-      attendance: att,
-      paymentStatus: paymentStatus,
-      amountPaid: amountPaid,
-      examGrade: ex !== '' ? Number(ex) : null,
-      homeworkGrade: hw !== '' ? Number(hw) : null,
-      teacherNotes: nt,
-      secretaryName: session?.full_name || 'الإدارة'
+      studentId, groupId, attendance: att, paymentStatus: paymentStatus,
+      amountPaid: amountPaid, remainingAmount: remainingAmount,
+      examGrade: ex !== '' ? Number(ex) : null, homeworkGrade: hw !== '' ? Number(hw) : null,
+      teacherNotes: nt, secretaryName: session?.full_name || 'الإدارة'
     });
-    
+
     if (rec) {
       finalRecordId = rec.id;
-      // تحديث الـ IDs في الواجهة عشان ميتمش تكرار السجل لو ضغط حفظ تاني
       const card = document.getElementById('grp-rec-' + recordId);
       if (card) {
         card.id = 'grp-rec-' + finalRecordId;
         document.getElementById('att-' + recordId).id = 'att-' + finalRecordId;
         document.getElementById('paid-' + recordId).id = 'paid-' + finalRecordId;
+        if (document.getElementById('rm-' + recordId)) document.getElementById('rm-' + recordId).id = 'rm-' + finalRecordId;
         document.getElementById('ex-' + recordId).id = 'ex-' + finalRecordId;
         document.getElementById('hw-' + recordId).id = 'hw-' + finalRecordId;
         document.getElementById('nt-' + recordId).id = 'nt-' + finalRecordId;
@@ -1980,21 +1979,16 @@ window.quickSave = async function(recordId, studentId, groupId) {
         const appBtn = card.querySelector('.primary-btn');
         if(saveBtn) saveBtn.setAttribute('onclick', `window.quickSave('${finalRecordId}', '${studentId}', '${groupId}')`);
         if(appBtn) appBtn.setAttribute('onclick', `window.quickApprove('${finalRecordId}', '${studentId}', '${groupId}')`);
-        
-        // إخفاء إشعار "لم يسجل اليوم" لأن بقى ليه سجل رسمي
+
         const warningBadge = card.querySelector('span[style*="var(--warning)"]');
         if (warningBadge) warningBadge.remove();
       }
     }
   } else {
-    // تحديث سجل موجود بالفعل
     await DB.updateRecord(finalRecordId, {
-      attendance: att,
-      amountPaid: amountPaid,
-      paymentStatus: paymentStatus,
-      examGrade: ex !== '' ? Number(ex) : null,
-      homeworkGrade: hw !== '' ? Number(hw) : null,
-      teacherNotes: nt
+      attendance: att, amountPaid: amountPaid, remainingAmount: remainingAmount,
+      paymentStatus: paymentStatus, examGrade: ex !== '' ? Number(ex) : null,
+      homeworkGrade: hw !== '' ? Number(hw) : null, teacherNotes: nt
     });
   }
 
@@ -2037,6 +2031,7 @@ function openEditModal(recordId) {
   $('#editAmountPaid').value = record.amount_paid ?? 0;
   $('#editNotes').value = record.teacher_notes ?? '';
   $('#editModal').classList.remove('hidden');
+  $('#editRemainingAmount').value = record.remaining_amount ?? 0;
 }
 function initEditModal() {
   $('#editModalClose').addEventListener('click', () => $('#editModal').classList.add('hidden'));
@@ -2059,6 +2054,7 @@ function initEditModal() {
       homeworkGrade: $('#editHomeworkGrade').value || null,
       examGrade: $('#editExamGrade').value || null,
       amountPaid: newPaid,
+      remainingAmount: Number($('#editRemainingAmount').value) || 0,
       teacherNotes: $('#editNotes').value,
     });
 
@@ -2176,3 +2172,14 @@ window.addEventListener('beforeinstallprompt', (e) => {
     if (deferredPrompt) deferredPrompt.prompt();
   }, 1500);
 });
+window.quickEditStudentName = async function(studentId) {
+  const student = DB.getStudentById(studentId);
+  if(!student) return;
+  const newName = prompt('تعديل اسم الطالب:', student.name);
+  if (newName && newName.trim() !== '' && newName !== student.name) {
+    await DB.updateStudent(studentId, { name: newName.trim() });
+    toast('✅ تم تعديل اسم الطالب بنجاح', 'success');
+    const nameSpan = document.getElementById('st-name-' + studentId);
+    if(nameSpan) nameSpan.textContent = newName.trim();
+  }
+};

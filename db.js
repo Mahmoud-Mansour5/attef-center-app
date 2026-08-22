@@ -50,7 +50,7 @@ const DB = (() => {
     await Promise.all([
       refreshUsers(), refreshGradeLevels(), refreshSubjects(), refreshTeachers(),
       refreshGroups(), refreshStudents(), refreshStudentGroups(),
-      refreshDailyRecords(), refreshStudentPayments(), refreshExpenses(),
+      refreshDailyRecords(), refreshStudentPayments(),
     ]);
   }
 
@@ -439,16 +439,16 @@ const DB = (() => {
       const groupId = record.groupId || groupIds[0] || null;
       const existing = this.getRecordForStudentToday(record.studentId, groupId);
 
-      // ⚠️ الأعمدة هنا يجب أن تطابق تماماً هيكل جدول daily_records في Supabase
-      // (attendance, payment_status, amount_paid, secretary_id, secretary_name, time_in,
-      //  teacher_notes, exam_grade, exam_out_of, homework_grade, homework_out_of,
-      //  student_id, group_id, session_date) — أي اختلاف في الاسم هو السبب الشائع لفشل الحفظ.
+      const oldRemaining = Number(existing?.remaining_amount) || 0;
+      const newRemaining = record.remainingAmount !== undefined ? Number(record.remainingAmount) : oldRemaining;
+
       const payload = {
         student_id: record.studentId,
         group_id: groupId,
         session_date: today,
         time_in: record.timeIn ?? existing?.time_in ?? nowTimeStr(),
         amount_paid: record.amountPaid !== undefined ? Number(record.amountPaid) || 0 : (existing?.amount_paid ?? 0),
+        remaining_amount: newRemaining,
         secretary_id: record.secretaryId ?? existing?.secretary_id ?? null,
         secretary_name: record.secretaryName ?? existing?.secretary_name ?? '',
         exam_grade: record.examGrade !== undefined ? record.examGrade : (existing?.exam_grade ?? null),
@@ -458,7 +458,7 @@ const DB = (() => {
         teacher_notes: record.teacherNotes !== undefined ? record.teacherNotes : (existing?.teacher_notes ?? ''),
         teacher_submitted: record.teacherSubmitted !== undefined ? record.teacherSubmitted : (existing?.teacher_submitted ?? false),
         is_approved: false,
-        attendance: record.attendance ?? existing?.attendance ?? 'none',
+        attendance: record.attendance ?? existing?.attendance ?? 'absent',
         payment_status: record.paymentStatus ?? existing?.payment_status ?? 'unpaid',
       };
 
@@ -468,76 +468,37 @@ const DB = (() => {
       } else {
         ({ data, error } = await supabaseClient.from('daily_records').insert(payload).select().single());
       }
-      if (error) {
-        logErr('saveRecord', error);
-        console.error('[saveRecord] البيانات التي حاولنا حفظها (Payload):', payload);
-        return null;
-      }
+      if (error) return logErr('saveRecord', error);
 
       const idx = cache.dailyRecords.findIndex(r => r.id === data.id);
       if (idx > -1) cache.dailyRecords[idx] = data; else cache.dailyRecords.unshift(data);
 
-      // خصم المبلغ المدفوع الآن من مديونية الطالب فوراً عند الحفظ (وليس فقط عند الاعتماد)
-      // + تسجيل حركة تفصيلية في student_payments لظهورها في تقرير الماليات
-      // ⚠️ تصليح حساب المديونية الشامل (إضافة سعر الحصة وخصم المدفوع)
-      const isNewRecord = !existing;
-      // ⚠️ تصليح حساب المديونية الشامل (تطبيق سياسة: لا رسوم على الغائب)
-      const group = this.getGroupById(groupId);
-      const sessionPrice = Number(group?.price_per_session) || 0;
-      
-      const oldPaid = existing?.amount_paid ? Number(existing.amount_paid) : 0;
-      const newPaid = record.amountPaid !== undefined ? Number(record.amountPaid) : oldPaid;
-      
-      const oldAttendance = existing?.attendance || 'none';
-      const newAttendance = record.attendance || oldAttendance;
+      let debtChange = newRemaining - oldRemaining;
+      if (debtChange !== 0) await this.adjustStudentDebt(record.studentId, debtChange);
 
-      // سعر الحصة يُحسب فقط إذا كان الطالب "حاضر"
-      const oldSessionCharge = oldAttendance === 'present' ? sessionPrice : 0;
-      const newSessionCharge = newAttendance === 'present' ? sessionPrice : 0;
-
-      let debtChange = 0;
-      
-      // 1. حساب التغير في رسوم الحصة (تُضاف فقط للحاضر، وتُخصم لو تحول لغائب)
-      debtChange += (newSessionCharge - oldSessionCharge);
-      
-      // 2. خصم الفارق بين المبلغ المدفوع حالياً والقديم
-      debtChange -= (newPaid - oldPaid);
-
-      // 3. تحديث المديونية الكلية للطالب
-      if (debtChange !== 0) {
-        await this.adjustStudentDebt(record.studentId, debtChange);
-      }
-
-      // 4. تسجيل عملية الدفع في سجل الماليات التفصيلي
-      const extraPaid = newPaid - oldPaid;
-      if (extraPaid > 0) {
+      const oldPaid = Number(existing?.amount_paid) || 0;
+      const newPaid = Number(payload.amount_paid);
+      if (newPaid - oldPaid > 0) {
         await this.addPayment({
           studentId: record.studentId,
-          amount: extraPaid,
+          amount: newPaid - oldPaid,
           secretaryId: record.secretaryId ?? null,
-          notes: record.paymentNotes || (isNewRecord ? 'دفع أثناء الحضور' : 'تحديث دفعة'),
+          notes: record.paymentNotes || (existing ? 'تحديث دفعة' : 'دفع أثناء الحضور'),
         });
       }
 
       return data;
     },
+
     async updateRecord(id, updates) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
       if (!existing) return null;
 
-      const group = this.getGroupById(existing.group_id);
-      const sessionPrice = Number(group?.price_per_session) || 0;
-
       const oldPaid = Number(existing.amount_paid) || 0;
       const newPaid = updates.amountPaid !== undefined ? Number(updates.amountPaid) : oldPaid;
 
-      const oldAttendance = existing.attendance || 'none';
-      const newAttendance = updates.attendance || oldAttendance;
-
-      // حساب التغير في رسوم الحصة والمدفوع
-      const oldCharge = oldAttendance === 'present' ? sessionPrice : 0;
-      const newCharge = newAttendance === 'present' ? sessionPrice : 0;
-      let debtChange = (newCharge - oldCharge) - (newPaid - oldPaid);
+      const oldRemaining = Number(existing.remaining_amount) || 0;
+      const newRemaining = updates.remainingAmount !== undefined ? Number(updates.remainingAmount) : oldRemaining;
 
       const patch = {};
       if (updates.attendance !== undefined) patch.attendance = updates.attendance;
@@ -548,12 +509,14 @@ const DB = (() => {
       if (updates.homeworkOutOf !== undefined) patch.homework_out_of = updates.homeworkOutOf;
       if (updates.teacherNotes !== undefined) patch.teacher_notes = updates.teacherNotes;
       if (updates.amountPaid !== undefined) patch.amount_paid = newPaid;
+      if (updates.remainingAmount !== undefined) patch.remaining_amount = newRemaining;
 
       const { data, error } = await supabaseClient.from('daily_records').update(patch).eq('id', id).select().single();
       if (error) return logErr('updateRecord', error);
 
-      // تطبيق التعديل المالي على المديونية وسجل الدفعات
+      let debtChange = newRemaining - oldRemaining;
       if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
+      
       if (newPaid - oldPaid !== 0) {
         await this.addPayment({
           studentId: existing.student_id,
@@ -566,23 +529,24 @@ const DB = (() => {
       if (idx > -1) cache.dailyRecords[idx] = data;
       return data;
     },
+
     async deleteRecord(id) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
       if (existing) {
-        const group = this.getGroupById(existing.group_id);
-        const sessionPrice = Number(group?.price_per_session) || 0;
-        const oldCharge = existing.attendance === 'present' ? sessionPrice : 0;
         const oldPaid = Number(existing.amount_paid) || 0;
+        const oldRemaining = Number(existing.remaining_amount) || 0;
         
-        // عكس التأثير المالي: طرح قيمة الحصة وإرجاع المدفوع للمديونية
-        let debtChange = -oldCharge + oldPaid;
+        let debtChange = -oldRemaining;
         if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
+        
         if (oldPaid > 0) {
           await this.addPayment({ studentId: existing.student_id, amount: -oldPaid, notes: 'إلغاء سجل (حذف)' });
         }
       }
+      
       const { error } = await supabaseClient.from('daily_records').delete().eq('id', id);
       if (error) return logErr('deleteRecord', error);
+      
       cache.dailyRecords = cache.dailyRecords.filter(r => String(r.id) !== String(id));
     },
     /* اعتماد سجل: يخصم المتبقي غير المخصوم (إن وجد) من مديونية الطالب ويعلّم السجل معتمد */
@@ -757,6 +721,7 @@ const DB = (() => {
     },
 
     /* تفصيل المديونية لطالب معيّن: كل حصة سابقة لم تُدفع بالكامل (المدفوع أقل من سعر الحصة أو صفر) */
+    /* تفصيل المديونية لطالب معيّن: الاعتماد على المبلغ المتبقي الجديد */
     getDebtDetailsForStudent(studentId) {
       return cache.dailyRecords
         .filter(r => String(r.student_id) === String(studentId))
@@ -764,7 +729,10 @@ const DB = (() => {
           const group = this.getGroupById(r.group_id);
           const price = Number(group?.price_per_session) || 0;
           const paid = Number(r.amount_paid) || 0;
-          const remaining = price - paid;
+          
+          // التعديل هنا: قراءة "المبلغ المتبقي" من العمود الجديد اللي ضفناه
+          const remaining = Number(r.remaining_amount) || 0; 
+          
           return { record: r, group, price, paid, remaining };
         })
         .filter(x => x.remaining > 0)

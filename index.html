@@ -554,12 +554,12 @@
 
     <div class="form-row pay-amount-group">
       <div class="form-group">
-        <label>المبلغ المدفوع</label>
+        <label>المبلغ المدفوع (كاش)</label>
         <input type="number" class="field" data-field="paidNow" min="0" placeholder="0">
       </div>
       <div class="form-group">
-        <label>المبلغ المتبقي</label>
-        <input type="number" class="field" data-field="remainingAmount" min="0" readonly>
+        <label>المبلغ المتبقي (آجل/دين)</label>
+        <input type="number" class="field" data-field="remainingAmount" min="0" placeholder="0">
       </div>
     </div>
 
@@ -679,9 +679,15 @@
           <input type="number" class="field" id="editExamGrade" min="0">
         </div>
       </div>
-      <div class="form-group">
-        <label>المبلغ المدفوع</label>
-        <input type="number" class="field" id="editAmountPaid" min="0">
+      <div class="form-row">
+        <div class="form-group">
+          <label>المبلغ المدفوع</label>
+          <input type="number" class="field" id="editAmountPaid" min="0">
+        </div>
+        <div class="form-group">
+          <label>المبلغ المتبقي (الدين)</label>
+          <input type="number" class="field" id="editRemainingAmount" min="0">
+        </div>
       </div>
       <div class="form-group">
         <label>ملاحظات</label>
@@ -895,6 +901,7 @@
         <span class="debt-icon">⚠️</span>
         <span class="debt-text">المديونية الحالية: <b id="sfCurrentDebt">0</b> جنيه</span>
       </div>
+      <div class="form-group"><label>اسم الطالب</label><input type="text" class="field" id="sfEditStudentName"></div>
       <div class="form-group"><label>كود الطالب</label><input type="text" class="field" id="sfStudentCode"></div>
       <div class="form-group"><label>تعديل المديونية الكلية (جنيه)</label><input type="number" class="field" id="sfDebt"></div>
       <div class="form-group"><label>الصف / المرحلة</label><input type="text" class="field" id="sfGradeLevel"></div>
