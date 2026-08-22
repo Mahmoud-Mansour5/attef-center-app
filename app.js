@@ -20,7 +20,18 @@ let editingGroupId = null;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const fmt = (n) => Number(n || 0).toLocaleString('ar-EG');
-
+// دالة تحويل الوقت من 24 لـ 12 ساعة (ص/م)
+function formatTime12h(timeStr) {
+  if (!timeStr) return '';
+  const parts = timeStr.split(':');
+  if (parts.length < 2) return timeStr;
+  let h = parseInt(parts[0], 10);
+  const m = parts[1];
+  const ampm = h >= 12 ? 'م' : 'ص';
+  h = h % 12;
+  h = h ? h : 12; // الصفر (منتصف الليل) يتحول لـ 12
+  return `${h}:${m} ${ampm}`;
+}
 /* ==========================================================================
    Theme
    ========================================================================== */
@@ -628,7 +639,7 @@ function renderGroupsPage() {
       </div>
       <div class="group-meta-row">
         <span class="group-meta-pill">📅 ${escapeHtml(g.day_of_week || '—')}</span>
-        <span class="group-meta-pill">⏰ ${escapeHtml(g.time_start || '—')}</span>
+        <span class="group-meta-pill">⏰ ${g.time_start ? formatTime12h(g.time_start) : '—'}</span>
         <span class="group-meta-pill">💵 ${fmt(g.price_per_session)} ج/حصة</span>
       </div>
       <div class="dir-stats-row">
@@ -882,7 +893,7 @@ function renderFinanceFilterOptions() {
   groupSel.innerHTML = '<option value="all">كل المجموعات</option>' + groups.map(g => {
     const teacher = DB.getTeacherById(g.teacher_id);
     const subject = DB.getSubjects().find(s => s.id === g.subject_id);
-    const label = `${g.grade_level || 'بدون مرحلة'} — ${subject?.name || 'مادة'} — ${g.day_of_week || ''} (${g.time_start || 'بدون موعد'})`;    return `<option value="${g.id}">${escapeHtml(label)}</option>`;
+    const label = `${g.grade_level || 'بدون مرحلة'} — ${subject?.name || 'مادة'} — ${g.day_of_week || ''} (${g.time_start ? formatTime12h(g.time_start) : 'بدون موعد'})`;
   }).join('');
   groupSel.value = curGroup;
 }
@@ -921,7 +932,7 @@ function renderFinancePage() {
     $('#paymentsLedgerEmpty').classList.toggle('hidden', ledger.length > 0);
     pBody.innerHTML = ledger.map(p => `
       <tr>
-        <td>${escapeHtml(p.date)}</td><td>${escapeHtml(p.time)}</td>
+       <td>${escapeHtml(p.date)}</td><td dir="ltr" style="text-align: right;">${formatTime12h(p.time)}</td>
         <td><b>${escapeHtml(p.studentName)}</b></td><td>#${escapeHtml(p.studentCode)}</td>
         <td>${fmt(p.amount)} ج</td><td>${escapeHtml(p.secretaryName)}</td><td>${escapeHtml(p.notes || '—')}</td>
       </tr>
@@ -1202,7 +1213,7 @@ function renderStudentsList(filterOverride) {
       if (existing.amount_paid) paidInput.value = existing.amount_paid;
       presentCheck.checked = existing.attendance === 'present';
       if (existing.time_in && existing.attendance === 'present') {
-        timeChip.textContent = `⏱ وقت الحضور: ${existing.time_in}`;
+        timeChip.textContent = `⏱ وقت الحضور: ${formatTime12h(existing.time_in)}`;
         timeChip.classList.add('recorded');
       }
     }
@@ -1563,7 +1574,7 @@ function initTeacherCascadingSelects() {
     const groups = DB.getGroupsByTeacher(teacher.id).filter(g => g.grade_level === grade);
     groupSel.innerHTML = '<option value="">— اختر المجموعة —</option>' + groups.map(g => {
       const subject = DB.getSubjects().find(s => s.id === g.subject_id);
-      return `<option value="${g.id}">${escapeHtml(subject?.name || 'مجموعة')} — ${escapeHtml(g.day_of_week || '')} ${escapeHtml(g.time_start || '')}</option>`;
+      return `<option value="${g.id}">${escapeHtml(subject?.name || 'مجموعة')} — ${escapeHtml(g.day_of_week || '')} ${g.time_start ? formatTime12h(g.time_start) : ''}</option>`;
     }).join('');
   });
   $('#teacherGroupSelect').addEventListener('change', () => {
@@ -1764,7 +1775,7 @@ function renderApprovalsPage() {
         <div class="dir-avatar">🏷️</div>
         <div>
           <div class="dir-name">${escapeHtml(groupLabel)}</div>
-          <div class="dir-role">📅 ${escapeHtml(group.day_of_week || '')} · ⏰ ${escapeHtml(group.time_start || '')}</div>
+          <div class="dir-role">📅 ${escapeHtml(group.day_of_week || '')} · ⏰ ${group.time_start ? formatTime12h(group.time_start) : '—'}</div>
         </div>
       </div>
       <div class="dir-stats-row">
