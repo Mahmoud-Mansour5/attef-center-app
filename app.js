@@ -1789,17 +1789,37 @@ function initApprovalsActions() {
     const groupId = actionBtn.dataset.approveGroup || actionBtn.dataset.openGroupApprovals;
 
     if (actionBtn.dataset.approveGroup) {
-      const ok = await askConfirm('اعتماد المجموعة؟', 'سيتم اعتماد كافة السجلات المعلقة لهذه المجموعة.');
+      const ok = await askConfirm('اعتماد وتقفيل المجموعة؟', 'سيتم اعتماد الحاضرين، وتسجيل الطلاب الذين لم يحضروا كغياب تلقائياً (بدون إضافة أي مديونية أو رسوم).');
       if (!ok) return;
-      const pending = DB.getPendingRecords().filter(r => String(r.group_id) === String(groupId));
-      for (const record of pending) {
-        await DB.approveRecord(record.id);
+
+      // 1. جلب كل الطلاب المسجلين في هذه المجموعة
+      const students = DB.getStudentsByGroup(groupId);
+      
+      // 2. فحص كل طالب وتحديد حالته
+      for (const student of students) {
+        const record = DB.getRecordForStudentToday(student.id, groupId);
+        
+        if (!record) {
+          // الطالب ليس له سجل نهائياً -> إنشاء سجل "غياب" بـ 0 جنيه ثم اعتماده
+          const newRec = await DB.saveRecord({
+            studentId: student.id,
+            groupId: groupId,
+            attendance: 'absent',
+            paymentStatus: 'unpaid',
+            amountPaid: 0,
+            secretaryName: session?.full_name || 'الإدارة (تقفيل تلقائي)'
+          });
+          if (newRec) await DB.approveRecord(newRec.id);
+        } else if (!record.is_approved) {
+          // الطالب له سجل معلق (حضر أو دفع) -> اعتماده مباشرة
+          await DB.approveRecord(record.id);
+        }
       }
-      toast('✅ تم اعتماد المجموعة بنجاح', 'success');
+
+      toast('✅ تم تقفيل المجموعة واعتمادها بنجاح', 'success');
       renderPage(currentPage);
     } 
     else if (actionBtn.dataset.openGroupApprovals) {
-      // نفتح نفس المودال أو شاشة تعرض طلاب المجموعة دي للتعديل الفردي
       openGroupDetailsModal(groupId);
     }
   });
@@ -1807,20 +1827,19 @@ function initApprovalsActions() {
   $('#approveAllBtn').addEventListener('click', async () => {
     const pending = DB.getPendingRecords();
     if (!pending.length) { toast('لا توجد سجلات لاعتمادها'); return; }
-    const ok = await askConfirm('اعتماد جميع السجلات؟', `سيتم اعتماد ${pending.length} سجل.`);
-    if (ok) { await DB.approveAll(); toast('✅ تم اعتماد جميع السجلات', 'success'); renderPage(currentPage); }
+    const ok = await askConfirm('اعتماد السجلات المعلقة؟', `سيتم اعتماد ${pending.length} سجل معلق فقط.`);
+    if (ok) { await DB.approveAll(); toast('✅ تم اعتماد السجلات', 'success'); renderPage(currentPage); }
   });
 }
 
 function openGroupDetailsModal(groupId) {
-  const pending = DB.getPendingRecords().filter(r => String(r.group_id) === String(groupId));
   const group = DB.getGroupById(groupId);
+  // جلب كل الطلاب لإظهار الكشف الكامل للحصة
+  const students = DB.getStudentsByGroup(groupId); 
 
-  // إزالة أي شاشة سابقة إذا كانت مفتوحة
   const oldModal = document.getElementById('dynamicGroupModal');
   if (oldModal) oldModal.remove();
 
-  // إنشاء الشاشة المنبثقة الجديدة
   const modal = document.createElement('div');
   modal.id = 'dynamicGroupModal';
   modal.className = 'modal-overlay';
@@ -1829,60 +1848,75 @@ function openGroupDetailsModal(groupId) {
   let html = `
     <div class="glass-panel" style="width: 95%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
       <div class="panel-header">
-        <h2>📝 تفاصيل واعتماد: ${escapeHtml(group?.grade_level || 'مجموعة')}</h2>
+        <h2>📝 كشف تقفيل الحصة: ${escapeHtml(group?.grade_level || 'مجموعة')}</h2>
         <button class="x-btn" onclick="document.getElementById('dynamicGroupModal').remove(); renderPage(currentPage);">✕</button>
       </div>
       <div class="panel-body" style="overflow-y: auto; flex: 1; padding: 20px; background: var(--bg-page);">
   `;
 
-  if (pending.length === 0) {
-     html += `<div class="empty-state">لا توجد سجلات معلقة لهذه المجموعة</div>`;
+  if (students.length === 0) {
+     html += `<div class="empty-state">لا يوجد طلاب مسجلين في هذه المجموعة</div>`;
   } else {
      html += `<div style="display: flex; flex-direction: column; gap: 16px;">`;
-     pending.forEach(record => {
-       const student = DB.getStudentById(record.student_id);
+     
+     students.forEach(student => {
+       const record = DB.getRecordForStudentToday(student.id, groupId);
+       const isApproved = record && record.is_approved;
        
-       // معالجة الدرجات الفارغة (null)
-       const exGrade = record.exam_grade !== null && record.exam_grade !== undefined ? record.exam_grade : '';
-       const hwGrade = record.homework_grade !== null && record.homework_grade !== undefined ? record.homework_grade : '';
+       // الإعدادات الافتراضية لمن ليس له سجل (الغياب)
+       const attendance = record ? record.attendance : 'absent';
+       const amountPaid = record ? (record.amount_paid || 0) : 0;
+       const exGrade = (record && record.exam_grade !== null) ? record.exam_grade : '';
+       const hwGrade = (record && record.homework_grade !== null) ? record.homework_grade : '';
+       const teacherNotes = record ? (record.teacher_notes || '') : '';
        
+       const recordId = record ? record.id : `new-${student.id}`;
+
        html += `
-         <div class="dir-card glass-panel" id="grp-rec-${record.id}" style="padding: 16px;">
+         <div class="dir-card glass-panel" id="grp-rec-${recordId}" style="padding: 16px; ${isApproved ? 'opacity: 0.6; border: 1px solid var(--success);' : ''}">
            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px;">
              <div style="font-weight: 900; font-size: 16px;">
-               ${escapeHtml(student?.name || 'طالب')} <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student?.student_code || '')})</span>
+               ${escapeHtml(student.name)} <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student.student_code)})</span>
+               ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
+               ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ غائب (لم يُسجل اليوم)</span>' : ''}
              </div>
              <div style="display:flex; gap: 8px;">
-                <button class="ghost-btn" style="padding: 8px 16px;" onclick="window.quickSave('${record.id}')">💾 حفظ التعديلات</button>
-                <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);" onclick="window.quickApprove('${record.id}')">✅ اعتماد</button>
+                ${!isApproved ? `
+                <button class="ghost-btn" style="padding: 8px 16px;" onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}')">💾 حفظ</button>
+                <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);" onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}')">✅ اعتماد</button>
+                ` : ''}
              </div>
            </div>
 
-           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px;">
              <div class="form-group" style="margin:0;">
                <label>حالة الحضور</label>
-               <select class="field" id="att-${record.id}">
-                 <option value="present" ${record.attendance === 'present' ? 'selected' : ''}>✅ حاضر</option>
-                 <option value="absent" ${record.attendance === 'absent' ? 'selected' : ''}>❌ غائب</option>
-                 <option value="none" ${record.attendance === 'none' ? 'selected' : ''}>— لم يسجل</option>
+               <select class="field" id="att-${recordId}" ${isApproved ? 'disabled' : ''}>
+                 <option value="present" ${attendance === 'present' ? 'selected' : ''}>✅ حاضر</option>
+                 <option value="absent" ${attendance === 'absent' ? 'selected' : ''}>❌ غائب</option>
                </select>
              </div>
              <div class="form-group" style="margin:0;">
-               <label>الامتحان (من ${record.exam_out_of || 20})</label>
-               <input type="number" class="field" id="ex-${record.id}" value="${exGrade}" placeholder="لم يمتحن">
+               <label>المدفوع (ج)</label>
+               <input type="number" class="field" id="paid-${recordId}" value="${amountPaid}" placeholder="0" ${isApproved ? 'disabled' : ''}>
              </div>
              <div class="form-group" style="margin:0;">
-               <label>الواجب (من ${record.homework_out_of || 20})</label>
-               <input type="number" class="field" id="hw-${record.id}" value="${hwGrade}" placeholder="بدون واجب">
+               <label>الامتحان</label>
+               <input type="number" class="field" id="ex-${recordId}" value="${exGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
+             </div>
+             <div class="form-group" style="margin:0;">
+               <label>الواجب</label>
+               <input type="number" class="field" id="hw-${recordId}" value="${hwGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
              </div>
              <div class="form-group" style="margin:0; grid-column: 1 / -1;">
-               <label>ملاحظات المدرس</label>
-               <input type="text" class="field" id="nt-${record.id}" value="${escapeHtml(record.teacher_notes || '')}" placeholder="لا توجد ملاحظات">
+               <label>ملاحظات</label>
+               <input type="text" class="field" id="nt-${recordId}" value="${escapeHtml(teacherNotes)}" placeholder="لا توجد ملاحظات" ${isApproved ? 'disabled' : ''}>
              </div>
            </div>
          </div>
        `;
      });
+     
      html += `</div>`;
   }
 
@@ -1894,36 +1928,83 @@ function openGroupDetailsModal(groupId) {
   modal.innerHTML = html;
   document.body.appendChild(modal);
 }
-
-// دوال مساعدة مرتبطة بالشاشة الجديدة (تُضاف مباشرة تحت الدالة السابقة)
-window.quickSave = async function(recordId) {
+window.quickSave = async function(recordId, studentId, groupId) {
   const att = document.getElementById('att-' + recordId).value;
+  const paidVal = document.getElementById('paid-' + recordId).value;
   const ex = document.getElementById('ex-' + recordId).value;
   const hw = document.getElementById('hw-' + recordId).value;
   const nt = document.getElementById('nt-' + recordId).value;
 
-  await DB.updateRecord(recordId, {
-    attendance: att,
-    examGrade: ex !== '' ? Number(ex) : null,
-    homeworkGrade: hw !== '' ? Number(hw) : null,
-    teacherNotes: nt
-  });
+  let finalRecordId = recordId;
+  const amountPaid = paidVal !== '' ? Number(paidVal) : 0;
+  const paymentStatus = amountPaid > 0 ? 'paid' : 'unpaid';
+
+  if (recordId.startsWith('new-')) {
+    // إنشاء سجل جديد تماماً للطالب اللي كان ملوش سجل اليوم
+    const rec = await DB.saveRecord({
+      studentId,
+      groupId,
+      attendance: att,
+      paymentStatus: paymentStatus,
+      amountPaid: amountPaid,
+      examGrade: ex !== '' ? Number(ex) : null,
+      homeworkGrade: hw !== '' ? Number(hw) : null,
+      teacherNotes: nt,
+      secretaryName: session?.full_name || 'الإدارة'
+    });
+    
+    if (rec) {
+      finalRecordId = rec.id;
+      // تحديث الـ IDs في الواجهة عشان ميتمش تكرار السجل لو ضغط حفظ تاني
+      const card = document.getElementById('grp-rec-' + recordId);
+      if (card) {
+        card.id = 'grp-rec-' + finalRecordId;
+        document.getElementById('att-' + recordId).id = 'att-' + finalRecordId;
+        document.getElementById('paid-' + recordId).id = 'paid-' + finalRecordId;
+        document.getElementById('ex-' + recordId).id = 'ex-' + finalRecordId;
+        document.getElementById('hw-' + recordId).id = 'hw-' + finalRecordId;
+        document.getElementById('nt-' + recordId).id = 'nt-' + finalRecordId;
+
+        const saveBtn = card.querySelector('.ghost-btn');
+        const appBtn = card.querySelector('.primary-btn');
+        if(saveBtn) saveBtn.setAttribute('onclick', `window.quickSave('${finalRecordId}', '${studentId}', '${groupId}')`);
+        if(appBtn) appBtn.setAttribute('onclick', `window.quickApprove('${finalRecordId}', '${studentId}', '${groupId}')`);
+        
+        // إخفاء إشعار "لم يسجل اليوم" لأن بقى ليه سجل رسمي
+        const warningBadge = card.querySelector('span[style*="var(--warning)"]');
+        if (warningBadge) warningBadge.remove();
+      }
+    }
+  } else {
+    // تحديث سجل موجود بالفعل
+    await DB.updateRecord(finalRecordId, {
+      attendance: att,
+      amountPaid: amountPaid,
+      paymentStatus: paymentStatus,
+      examGrade: ex !== '' ? Number(ex) : null,
+      homeworkGrade: hw !== '' ? Number(hw) : null,
+      teacherNotes: nt
+    });
+  }
+
   toast('✅ تم حفظ التعديلات بنجاح', 'success');
+  return finalRecordId;
 };
 
-window.quickApprove = async function(recordId) {
-  // نقوم بحفظ التعديلات أولاً لضمان عدم ضياع أي تغيير تم إجراؤه
-  await window.quickSave(recordId); 
-  
-  await DB.approveRecord(recordId);
-  toast('✅ تم اعتماد الطالب', 'success');
-  
-  // إخفاء كارت الطالب بسلاسة بعد اعتماده
-  const card = document.getElementById('grp-rec-' + recordId);
-  if (card) {
-    card.style.opacity = '0.5';
-    card.style.pointerEvents = 'none';
-    setTimeout(() => card.remove(), 400);
+window.quickApprove = async function(recordId, studentId, groupId) {
+  // حفظ التعديلات أولاً ثم الاعتماد
+  const finalRecordId = await window.quickSave(recordId, studentId, groupId); 
+  if (finalRecordId) {
+    await DB.approveRecord(finalRecordId);
+    toast('✅ تم اعتماد الطالب', 'success');
+    
+    // إخفاء كارت الطالب بعد اعتماده لتنظيف الكشف تدريجياً
+    const card = document.getElementById('grp-rec-' + finalRecordId);
+    if (card) {
+      card.style.opacity = '0.5';
+      card.style.pointerEvents = 'none';
+      setTimeout(() => card.remove(), 400); 
+    }
   }
 };
 /* ---------------- Edit modal ---------------- */

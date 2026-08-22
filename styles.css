@@ -780,3 +780,7 @@ select.field:disabled { opacity: .55; cursor: not-allowed; }
   }
   .data-table th { background: #eee !important; font-weight: bold !important; }
 }
+/* رفع نافذة التأكيد لتظهر فوق جميع النوافذ الأخرى دائمًا */
+#confirmModal {
+  z-index: 9999 !important;
+}
