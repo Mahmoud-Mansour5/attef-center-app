@@ -2066,12 +2066,16 @@ function openGroupDetailsModal(groupId, sessionDate) {
               ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
               ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ لم يُسجَّل في هذه الحصة</span>' : ''}
             </div>
-            <div style="display:flex; gap: 8px;">
+            <div style="display:flex; gap: 8px; flex-wrap: wrap;">
               ${!isApproved ? `
               <button class="ghost-btn" style="padding: 8px 16px;"
                 onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">💾 حفظ</button>
               <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);"
                 onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">✅ اعتماد</button>
+              ` : ''}
+              ${record ? `
+              <button class="ghost-btn danger" style="padding: 8px 16px; border-color: var(--danger); color: var(--danger);"
+                onclick="window.quickDelete('${record.id}', 'grp-rec-${recordId}')">🗑️ حذف السجل</button>
               ` : ''}
             </div>
           </div>
@@ -2192,6 +2196,22 @@ window.quickApprove = async function(recordId, studentId, groupId, sessionDate) 
     }
   }
 };
+
+window.quickDelete = async function(dbRecordId, cardElementId) {
+  const ok = await askConfirm('حذف السجل نهائياً؟', 'هل أنت متأكد من حذف هذا السجل؟ (سيتم تسوية الفلوس والمديونيات المرتبطة به تلقائياً)');
+  if (!ok) return;
+
+  await DB.deleteRecord(dbRecordId);
+  toast('🗑️ تم حذف السجل وتسوية الحسابات', 'success');
+
+  const card = document.getElementById(cardElementId);
+  if (card) {
+    card.style.opacity = '0.3';
+    card.style.pointerEvents = 'none';
+    setTimeout(() => card.remove(), 400);
+  }
+};
+
 /* ---------------- Edit modal ---------------- */
 
 
