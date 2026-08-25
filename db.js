@@ -434,10 +434,15 @@ const DB = (() => {
       return r && r.is_approved ? r : null;
     },
     async saveRecord(record) {
-      const today = todayStr();
+      const today = record.sessionDate || todayStr();
       const groupIds = this.getStudentGroupIds(record.studentId);
       const groupId = record.groupId || groupIds[0] || null;
-      const existing = this.getRecordForStudentToday(record.studentId, groupId);
+      // ابحث عن سجل موجود لنفس الطالب/المجموعة/التاريخ المحدد
+      const existing = cache.dailyRecords.find(
+        r => String(r.student_id) === String(record.studentId) &&
+             String(r.group_id) === String(groupId) &&
+             r.session_date === today
+      );
 
       const oldRemaining = Number(existing?.remaining_amount) || 0;
       const newRemaining = record.remainingAmount !== undefined ? Number(record.remainingAmount) : oldRemaining;
@@ -514,14 +519,17 @@ const DB = (() => {
       const { data, error } = await supabaseClient.from('daily_records').update(patch).eq('id', id).select().single();
       if (error) return logErr('updateRecord', error);
 
+      // 1. حساب الفارق الحقيقي في الدين وتعديل مديونية الطالب الكلية بالفارق فقط
       let debtChange = newRemaining - oldRemaining;
       if (debtChange !== 0) await this.adjustStudentDebt(existing.student_id, debtChange);
       
-      if (newPaid - oldPaid !== 0) {
+      // 2. حساب الفارق الحقيقي في الفلوس المدفوعة (لو زود أو قلل) وتسجيل الفارق فقط في الخزنة
+      const paidDiff = newPaid - oldPaid;
+      if (paidDiff !== 0) {
         await this.addPayment({
           studentId: existing.student_id,
-          amount: newPaid - oldPaid,
-          notes: 'تسوية رصيد (تعديل من الإدارة)'
+          amount: paidDiff, // لو زود 5 جنيه هيسجل 5، لو قلل هيخصم 5
+          notes: 'تعديل دفعة (تسوية إدارية)'
         });
       }
 
@@ -529,7 +537,7 @@ const DB = (() => {
       if (idx > -1) cache.dailyRecords[idx] = data;
       return data;
     },
-
+    
     async deleteRecord(id) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
       if (existing) {
@@ -553,6 +561,8 @@ const DB = (() => {
     async approveRecord(id) {
       const record = cache.dailyRecords.find(r => r.id === id);
       if (!record) return null;
+      if (record.is_approved) return record; // السطر السحري لمنع استنزاف قاعدة البيانات
+
       const { data, error } = await supabaseClient.from('daily_records').update({ is_approved: true }).eq('id', id).select().single();
       if (error) return logErr('approveRecord', error);
       const idx = cache.dailyRecords.findIndex(r => r.id === id);
@@ -576,17 +586,24 @@ const DB = (() => {
         teacherNotes: notes, teacherSubmitted: true, secretaryName: teacherName,
       });
     },
-    /* إرسال تقرير المجموعة كاملاً: أي طالب بالمجموعة ليس له سجل حضور اليوم (لم يمر على السكرتير)
-       يُنشأ له سجل تلقائي بحالة "غائب" حتى لا يفوت أي طالب من تقرير اليوم (الحالة 3). */
-    async finalizeGroupReport(groupId, teacherName) {
+    /* إرسال تقرير المجموعة كاملاً: أي طالب بالمجموعة ليس له سجل حضور في التاريخ المحدد
+       يُنشأ له سجل تلقائي بحالة "غائب" حتى لا يفوت أي طالب من تقرير اليوم (الحالة 3).
+       sessionDate اختياري — لو مش موجود يُستخدم تاريخ اليوم. */
+    async finalizeGroupReport(groupId, teacherName, sessionDate) {
+      const targetDate = sessionDate || todayStr();
       const students = this.getStudentsByGroup(groupId);
       const created = [];
       for (const student of students) {
-        const existing = this.getRecordForStudentToday(student.id, groupId);
+        const existing = cache.dailyRecords.find(
+          r => String(r.student_id) === String(student.id) &&
+               String(r.group_id) === String(groupId) &&
+               r.session_date === targetDate
+        );
         if (existing) continue;
         const rec = await this.saveRecord({
           studentId: student.id,
           groupId,
+          sessionDate: targetDate,
           attendance: 'absent',
           paymentStatus: 'unpaid',
           teacherSubmitted: true,
@@ -747,33 +764,6 @@ const DB = (() => {
         }));
     },
 
-    /* ---------------- Master table (joins everything for export) ---------------- */
-    getMasterTableRows(fromDate, toDate) {
-      let records = cache.dailyRecords;
-      if (fromDate) records = records.filter(r => r.session_date >= fromDate);
-      if (toDate) records = records.filter(r => r.session_date <= toDate);
-
-      return records.map(r => {
-        const student = this.getStudentById(r.student_id);
-        const group = this.getGroupById(r.group_id);
-        const teacher = group ? this.getTeacherById(group.teacher_id) : null;
-        return {
-          date: r.session_date,
-          studentCode: student?.student_code || '—',
-          studentName: student?.name || '—',
-          gradeLevel: student?.grade_level || '—',
-          teacherName: teacher?.name || '—',
-          timeIn: r.time_in || '—',
-          attendance: r.attendance === 'present' ? 'حاضر' : r.attendance === 'absent' ? 'غائب' : '—',
-          amountPaid: r.amount_paid || 0,
-          homework: `${r.homework_grade ?? '—'}/${r.homework_out_of ?? '—'}`,
-          exam: `${r.exam_grade ?? '—'}/${r.exam_out_of ?? '—'}`,
-          notes: r.teacher_notes || '',
-          approved: r.is_approved ? 'نعم' : 'لا',
-          totalDebt: student?.total_debt || 0,
-        };
-      });
-    },
     /* ---------------- Master table (joins everything for export) ---------------- */
     getMasterTableRows(fromDate, toDate) {
       let records = cache.dailyRecords;

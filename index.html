@@ -89,15 +89,15 @@
 
     <nav class="side-nav">
       <button class="side-link active" data-page="dashboard" data-roles="admin"><span class="si">📊</span><span class="st side-only-expanded">لوحة التحكم</span></button>
-      <button class="side-link" data-page="students" data-roles="admin"><span class="si">🎓</span><span class="st side-only-expanded">شؤون الطلاب</span></button>
+      <button class="side-link" data-page="students" data-roles="admin,secretary"><span class="si">🎓</span><span class="st side-only-expanded">شؤون الطلاب</span></button>
       <button class="side-link" data-page="teachers" data-roles="admin"><span class="si">👨‍🏫</span><span class="st side-only-expanded">إدارة المدرسين</span></button>
       <button class="side-link" data-page="groups" data-roles="admin"><span class="si">🏷️</span><span class="st side-only-expanded">المجموعات</span></button>
       <button class="side-link" data-page="gradeLevels" data-roles="admin"><span class="si">📘</span><span class="st side-only-expanded">المراحل والمواد</span></button>
       <button class="side-link" data-page="secretaries" data-roles="admin"><span class="si">🗂️</span><span class="st side-only-expanded">إدارة السكرتارية</span></button>
-      <button class="side-link" data-page="approvals" data-roles="admin"><span class="si">⏳</span><span class="st side-only-expanded">طابور الاعتماد</span><span class="side-badge" id="sideApprovalBadge">0</span></button>
+      <button class="side-link" data-page="approvals" data-roles="admin,secretar"><span class="si">⏳</span><span class="st side-only-expanded">طابور الاعتماد</span><span class="side-badge" id="sideApprovalBadge">0</span></button>
       <button class="side-link" data-page="finance" data-roles="admin"><span class="si">💰</span><span class="st side-only-expanded">التقارير المالية</span></button>
       <button class="side-link" data-page="master" data-roles="admin"><span class="si">🗃️</span><span class="st side-only-expanded">الشيت المجمع</span></button>
-      <button class="side-link" data-page="reception" data-roles="secretary"><span class="si">🛎️</span><span class="st side-only-expanded">استقبال وحضور</span></button>
+      <button class="side-link" data-page="reception" data-roles="admin,secretary"><span class="si">🛎️</span><span class="st side-only-expanded">استقبال وحضور</span></button>
       <button class="side-link" data-page="teacherPortal" data-roles="teacher"><span class="si">📝</span><span class="st side-only-expanded">لوحة المدرس</span></button>
     </nav>
 
@@ -277,7 +277,7 @@
     <main id="page-approvals" class="view page hidden">
       <section class="section-header">
         <h2>طابور اعتماد السجلات <span class="side-badge" id="approvalsPageBadge">0</span></h2>
-        <button id="approveAllBtn" class="ghost-btn">اعتماد الكل</button>
+        
       </section>
       <div id="approvalsList" class="approvals-grid"></div>
       <div id="noApprovals" class="empty-state hidden">
@@ -438,8 +438,17 @@
           <button id="scanQrBtn" class="quick-btn quick-scan"><span class="qi">📷</span>مسح الكود (تلقائي)</button>
           <button id="addStudentBtn2" class="quick-btn quick-add"><span class="qi">➕</span>طالب جديد</button>
         </div>
-        <div class="chips-row" id="groupChips">
-          <button class="chip active" data-group="all">الكل</button>
+        <div class="form-row" style="margin-top: 14px;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <select class="field select-filter" id="groupChipsSelect">
+              <option value="all">كل المراحل الدراسية</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <select class="field select-filter" id="teacherChipsSelect">
+              <option value="all">كل المدرسين</option>
+            </select>
+          </div>
         </div>
       </section>
 
@@ -555,11 +564,11 @@
     <div class="form-row pay-amount-group">
       <div class="form-group">
         <label>المبلغ المدفوع (كاش)</label>
-        <input type="number" class="field" data-field="paidNow" min="0" placeholder="0">
+        <input type="text" inputmode="numeric" class="field" data-field="paidNow" min="0" placeholder="0">
       </div>
       <div class="form-group">
         <label>المبلغ المتبقي (آجل/دين)</label>
-        <input type="number" class="field" data-field="remainingAmount" min="0" placeholder="0">
+        <input type="text" inputmode="numeric" class="field" data-field="remainingAmount" min="0" placeholder="0">
       </div>
     </div>
 
@@ -587,15 +596,15 @@
         <div class="form-group">
           <label>درجة الواجب / من كام</label>
           <div class="grade-pair">
-            <input type="number" class="field" data-field="homeworkGrade" min="0" placeholder="الدرجة">
-            <input type="number" class="field" data-field="homeworkMax" min="1" placeholder="من" value="20">
+            <input type="text" inputmode="numeric" class="field" data-field="homeworkGrade" min="0" placeholder="الدرجة">
+            <input type="text" inputmode="numeric" class="field" data-field="homeworkMax" min="1" placeholder="من" value="20">
           </div>
         </div>
         <div class="form-group">
           <label>درجة الامتحان / من كام</label>
           <div class="grade-pair">
-            <input type="number" class="field" data-field="examGrade" min="0" placeholder="الدرجة">
-            <input type="number" class="field" data-field="examMax" min="1" placeholder="من" value="20">
+            <input type="text" inputmode="numeric" class="field" data-field="examGrade" min="0" placeholder="الدرجة">
+            <input type="text" inputmode="numeric" class="field" data-field="examMax" min="1" placeholder="من" value="20">
           </div>
         </div>
       </div>
@@ -662,31 +671,31 @@
       <div class="form-row">
         <div class="form-group">
           <label>الدرجة العظمى — واجب</label>
-          <input type="number" class="field" id="editHomeworkMax" min="1" value="20">
+          <input type="text" inputmode="numeric" class="field" id="editHomeworkMax" min="1" value="20">
         </div>
         <div class="form-group">
           <label>الدرجة العظمى — امتحان</label>
-          <input type="number" class="field" id="editExamMax" min="1" value="20">
+          <input type="text" inputmode="numeric" class="field" id="editExamMax" min="1" value="20">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>درجة الواجب</label>
-          <input type="number" class="field" id="editHomeworkGrade" min="0">
+          <input type="text" inputmode="numeric" class="field" id="editHomeworkGrade" min="0">
         </div>
         <div class="form-group">
           <label>درجة الامتحان</label>
-          <input type="number" class="field" id="editExamGrade" min="0">
+          <input type="text" inputmode="numeric" class="field" id="editExamGrade" min="0">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label>المبلغ المدفوع</label>
-          <input type="number" class="field" id="editAmountPaid" min="0">
+          <input type="text" inputmode="numeric" class="field" id="editAmountPaid" min="0">
         </div>
         <div class="form-group">
           <label>المبلغ المتبقي (الدين)</label>
-          <input type="number" class="field" id="editRemainingAmount" min="0">
+          <input type="text" inputmode="numeric" class="field" id="editRemainingAmount" min="0">
         </div>
       </div>
       <div class="form-group">
@@ -806,7 +815,7 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label>الهاتف</label><input type="tel" class="field" id="teacherPhone" placeholder="010..."></div>
-        <div class="form-group"><label>نسبة الأرباح %</label><input type="number" class="field" id="teacherProfitPercentage" placeholder="50" min="0" max="100"></div>
+        <div class="form-group"><label>نسبة الأرباح %</label><input type="text" inputmode="numeric" class="field" id="teacherProfitPercentage" placeholder="50" min="0" max="100"></div>
       </div>
       <hr class="modal-divider">
       <p class="sub">حساب دخول المدرس <b style="color:var(--danger)">(إجباري)</b></p>
@@ -856,7 +865,7 @@
           <input type="time" class="field" id="groupTimeStart">
         </div>
       </div>
-      <div class="form-group"><label>سعر الحصة (جنيه)</label><input type="number" class="field" id="groupPricePerSession" placeholder="50"></div>
+      <div class="form-group"><label>سعر الحصة (جنيه)</label><input type="text" inputmode="numeric" class="field" id="groupPricePerSession" placeholder="50"></div>
     </div>
     <div class="panel-footer">
       <button class="primary-btn" id="saveGroupBtn">💾 حفظ</button>
@@ -903,7 +912,7 @@
       </div>
       <div class="form-group"><label>اسم الطالب</label><input type="text" class="field" id="sfEditStudentName"></div>
       <div class="form-group"><label>كود الطالب</label><input type="text" class="field" id="sfStudentCode"></div>
-      <div class="form-group"><label>تعديل المديونية الكلية (جنيه)</label><input type="number" class="field" id="sfDebt"></div>
+      <div class="form-group"><label>تعديل المديونية الكلية (جنيه)</label><input type="text" inputmode="numeric" class="field" id="sfDebt"></div>
       <div class="form-group"><label>الصف / المرحلة</label><input type="text" class="field" id="sfGradeLevel"></div>
       <div class="form-group"><label>هاتف ولي الأمر</label><input type="tel" class="field" id="sfParentPhone"></div>
 

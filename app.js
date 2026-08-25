@@ -350,7 +350,7 @@ function openStudentFinanceModal(studentId) {
   editingStudentFinanceId = student.id;
   $('#sfStudentName').textContent = `${student.name} — #${student.student_code}`;
   const sd = Number(student.total_debt) || 0;
-  $('#sfCurrentDebt').innerHTML = sd > 0 ? `<span style="direction:ltr; display:inline-block; color:var(--danger); font-weight:bold;">-${fmt(sd)}</span>` : sd < 0 ? `<span style="direction:ltr; display:inline-block; color:var(--success); font-weight:bold;">+${fmt(Math.abs(sd))}</span>` : '0';
+  $('#sfCurrentDebt').innerHTML = sd > 0 ? `<span style="color:var(--danger); font-weight:bold;">عليه ${fmt(sd)}</span>` : sd < 0 ? `<span style="color:var(--success); font-weight:bold;">له ${fmt(Math.abs(sd))}</span>` : '0';
   $('#sfStudentCode').value = student.student_code || '';
   $('#sfEditStudentName').value = student.name || '';
   $('#sfDebt').value = student.total_debt || 0;
@@ -896,6 +896,7 @@ function renderFinanceFilterOptions() {
     const teacher = DB.getTeacherById(g.teacher_id);
     const subject = DB.getSubjects().find(s => s.id === g.subject_id);
     const label = `${g.grade_level || 'بدون مرحلة'} — ${subject?.name || 'مادة'} — ${g.day_of_week || ''} (${g.time_start ? formatTime12h(g.time_start) : 'بدون موعد'})`;
+    return `<option value="${g.id}">${escapeHtml(label)}</option>`;
   }).join('');
   groupSel.value = curGroup;
 }
@@ -1089,21 +1090,42 @@ function initSettingsPage() {
 /* ==========================================================================
    Reception (secretary) view
    ========================================================================== */
+let activeTeacherFilter = 'all'; // متغير جديد لحفظ اختيار المدرس
+
 function renderGroupChips() {
-  const container = $('#groupChips');
+  const gradeSelect = $('#groupChipsSelect');
+  const teacherSelect = $('#teacherChipsSelect');
+  if (!gradeSelect || !teacherSelect) return;
+
+  // 1. تعبئة قائمة المراحل الدراسية
   const gradeLevels = DB.getGradeLevels();
-  container.innerHTML = '<button class="chip active" data-group="all">الكل</button>' +
-    gradeLevels.map(g => `<button class="chip" data-group="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('');
-  container.querySelectorAll('.chip').forEach(chip => {
-    chip.classList.toggle('active', chip.dataset.group === activeGroupFilter);
-    chip.addEventListener('click', () => {
-      container.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      activeGroupFilter = chip.dataset.group;
+  gradeSelect.innerHTML = '<option value="all">كل المراحل الدراسية</option>' +
+    gradeLevels.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+  gradeSelect.value = activeGroupFilter;
+
+  if (!gradeSelect.dataset.isInitialized) {
+    gradeSelect.addEventListener('change', () => {
+      activeGroupFilter = gradeSelect.value;
       flashCardStudentId = null;
       renderStudentsList();
     });
-  });
+    gradeSelect.dataset.isInitialized = 'true';
+  }
+
+  // 2. تعبئة قائمة المدرسين
+  const teachers = DB.getTeachers();
+  teacherSelect.innerHTML = '<option value="all">كل المدرسين</option>' +
+    teachers.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  teacherSelect.value = activeTeacherFilter;
+
+  if (!teacherSelect.dataset.isInitialized) {
+    teacherSelect.addEventListener('change', () => {
+      activeTeacherFilter = teacherSelect.value;
+      flashCardStudentId = null;
+      renderStudentsList();
+    });
+    teacherSelect.dataset.isInitialized = 'true';
+  }
 }
 function groupColor(seedStr) {
   const palette = ['#cdd1d8', '#b3b8c2', '#9aa0ac', '#8f96a3', '#a9aeb8', '#7d8797'];
@@ -1127,6 +1149,15 @@ function renderStudentsList(filterOverride) {
     students = only ? [only] : [];
   } else {
     if (activeGroupFilter !== 'all') students = students.filter(s => s.grade_level === activeGroupFilter);
+    
+    // ➕ ضيف الشرط ده هنا عشان يفلتر بالمدرس كمان
+    if (typeof activeTeacherFilter !== 'undefined' && activeTeacherFilter !== 'all') {
+      students = students.filter(s => {
+        const studentGroups = DB.getGroupsForStudent(s.id);
+        return studentGroups.some(g => String(g.teacher_id) === String(activeTeacherFilter));
+      });
+    }
+
     if (searchTerm) students = students.filter(s => s.name.toLowerCase().includes(searchTerm) || String(s.student_code).toLowerCase().includes(searchTerm));
   }
 
@@ -1632,12 +1663,22 @@ function renderTeacherStudentsList(groupId) {
     pill.className = `status-chip ${status.cls}`.trim();
 
     const existing = DB.getPendingRecordForStudentToday(student.id, groupId) || DB.getApprovedRecordForStudentToday(student.id, groupId);
+    const isAbsent = existing?.attendance === 'absent'; // فحص الغياب
+
     if (existing) {
       node.querySelector('[data-field="homeworkMax"]').value = existing.homework_out_of ?? 20;
       node.querySelector('[data-field="examMax"]').value = existing.exam_out_of ?? 20;
       node.querySelector('[data-field="homeworkGrade"]').value = existing.homework_grade ?? '';
       node.querySelector('[data-field="examGrade"]').value = existing.exam_grade ?? '';
       node.querySelector('[data-field="notes"]').value = existing.teacher_notes ?? '';
+
+      // إغلاق الخانات إذا كان الطالب غائباً لمنع الخطأ
+      if (isAbsent) {
+        node.querySelector('[data-field="homeworkGrade"]').disabled = true;
+        node.querySelector('[data-field="examGrade"]').disabled = true;
+        node.querySelector('[data-field="notes"]').disabled = true;
+        node.querySelector('[data-field="notes"]').value = 'الطالب غائب (مغلق)';
+      }
     }
     list.appendChild(node);
   });
@@ -1742,52 +1783,129 @@ function buildApprovalCard(record) {
 }
 function renderApprovalsPage() {
   const list = $('#approvalsList');
-  const pending = DB.getPendingRecords();
-  $('#noApprovals').classList.toggle('hidden', pending.length > 0);
-  list.innerHTML = '';
+  list.className = '';
 
-  // 1. تجميع السجلات المعلقة حسب المجموعة
-  const grouped = {};
-  pending.forEach(record => {
-    const groupId = record.group_id;
-    if (!grouped[groupId]) grouped[groupId] = [];
-    grouped[groupId].push(record);
+  const today = new Date().toISOString().slice(0, 10);
+  const allRecords = DB.getDailyRecords();
+
+  // السجلات المعلقة من أي يوم + السجلات المعتمدة من النهاردة فقط
+  const pendingRecords  = allRecords.filter(r => !r.is_approved);
+  const approvedToday   = allRecords.filter(r => r.is_approved && r.session_date === today);
+  const relevantRecords = [...pendingRecords, ...approvedToday];
+
+  $('#noApprovals').classList.toggle('hidden', relevantRecords.length > 0);
+  if (relevantRecords.length === 0) {
+    list.innerHTML = '';
+    refreshSideBadge();
+    return;
+  }
+
+  // ═══ المفتاح = "group_id|session_date" — كل حصة بتاريخها كارت مستقل ═══
+  const groupsMap = {};
+  relevantRecords.forEach(r => {
+    const key = `${r.group_id}|${r.session_date}`;
+    if (!groupsMap[key]) {
+      groupsMap[key] = { records: [], hasPending: false, groupId: r.group_id, sessionDate: r.session_date };
+    }
+    groupsMap[key].records.push(r);
+    if (!r.is_approved) groupsMap[key].hasPending = true;
   });
 
-  // 2. بناء كارت لكل مجموعة
-  for (const [groupId, records] of Object.entries(grouped)) {
-    const group = DB.getGroupById(groupId);
-    if (!group) continue;
-    
-    const teacher = DB.getTeacherById(group.teacher_id);
-    const subject = DB.getSubjects().find(s => s.id === group.subject_id);
-    const groupLabel = `${subject?.name || group.grade_level || 'مجموعة'} — ${teacher ? teacher.name : 'بدون مدرس'}`;
-    
-    const presentCount = records.filter(r => r.attendance === 'present').length;
-    const absentCount = records.filter(r => r.attendance === 'absent').length;
+  const pendingKeys  = [];
+  const approvedKeys = [];
+  for (const [key, data] of Object.entries(groupsMap)) {
+    if (data.hasPending) pendingKeys.push(key);
+    else approvedKeys.push(key);
+  }
 
-    const card = document.createElement('div');
-    card.className = 'dir-card glass-panel tilt shine';
-    card.innerHTML = `
-      <div class="dir-card-head">
-        <div class="dir-avatar">🏷️</div>
-        <div>
-          <div class="dir-name">${escapeHtml(groupLabel)}</div>
-          <div class="dir-role">📅 ${escapeHtml(group.day_of_week || '')} · ⏰ ${group.time_start ? formatTime12h(group.time_start) : '—'}</div>
+  // دالة بناء كارت المجموعة — تستخدم key بدل groupId
+  const buildGroupCard = (key, data, isFullyApproved) => {
+    const { groupId, sessionDate, records } = data;
+    const group = DB.getGroupById(groupId);
+    if (!group) return '';
+
+    const teacher    = DB.getTeacherById(group.teacher_id);
+    const subject    = DB.getSubjects().find(s => s.id === group.subject_id);
+    const groupLabel = `${subject?.name || group.grade_level || 'مجموعة'} — ${teacher ? teacher.name : 'بدون مدرس'}`;
+
+    const isToday        = sessionDate === today;
+    const dateLabel      = isToday ? 'اليوم' : sessionDate;
+    const dateBadgeColor = isToday ? 'var(--ink-secondary)' : 'var(--warning)';
+
+    // 1. جلب إجمالي الطلاب الحقيقيين في هذه المجموعة
+    const studentsInGroup = DB.getStudentsByGroup(groupId);
+    
+    // 2. حساب عدد الحاضرين الفعليين من السجلات
+    const presentCount = studentsInGroup.filter(st => {
+      const rec = records.find(r => String(r.student_id) === String(st.id));
+      return rec && rec.attendance === 'present';
+    }).length;
+
+    // 3. الغياب = إجمالي طلاب المجموعة ناقص الحاضرين (حتى لو ملوش سجل في الداتا بيز)
+    const absentCount = studentsInGroup.length - presentCount;
+
+    const totalCollected = records.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0);
+    const totalRemaining = records.reduce((sum, r) => sum + (Number(r.remaining_amount) || 0), 0);
+
+    // نحفظ group_id و session_date في dataset عشان زر الاعتماد يعرف ياخدهم
+    return `
+      <div class="dir-card glass-panel tilt shine" style="${isFullyApproved ? 'opacity: 0.85; border: 1px solid var(--success);' : ''}">
+        <div class="dir-card-head">
+          <div class="dir-avatar">🏷️</div>
+          <div>
+            <div class="dir-name">${escapeHtml(groupLabel)}</div>
+            <div class="dir-role">
+              📅 <span style="color:${dateBadgeColor}; font-weight:bold;">${escapeHtml(dateLabel)}</span>
+              · ⏰ ${group.time_start ? formatTime12h(group.time_start) : '—'}
+            </div>
+          </div>
+        </div>
+        <div class="dir-stats-row">
+          <div class="dir-stat"><b>${studentsInGroup.length}</b><span>إجمالي الطلاب</span></div>
+          <div class="dir-stat"><b>${presentCount}</b><span style="color:var(--success)">حاضر</span></div>
+          <div class="dir-stat"><b>${absentCount}</b><span style="color:var(--danger)">غائب</span></div>
+        </div>
+        <div class="dir-stats-row" style="margin-top:0;">
+          <div class="dir-stat" style="background:rgba(31,157,99,0.1);"><b>${fmt(totalCollected)} ج</b><span style="color:var(--success)">تم تحصيله</span></div>
+          <div class="dir-stat" style="background:rgba(213,72,74,0.1);"><b>${fmt(totalRemaining)} ج</b><span style="color:var(--danger)">متبقي (دين)</span></div>
+        </div>
+        <div class="dir-actions">
+          <button class="ghost-btn"
+            data-open-group-approvals="${groupId}"
+            data-session-date="${sessionDate}">⚙️ تفاصيل وتعديل</button>
+          ${!isFullyApproved
+            ? `<button class="primary-btn"
+                data-approve-group="${groupId}"
+                data-session-date="${sessionDate}">✅ اعتماد الحصة</button>`
+            : `<button class="ghost-btn" style="color:var(--success); border-color:var(--success); pointer-events:none;">✅ تم الاعتماد</button>`}
         </div>
       </div>
-      <div class="dir-stats-row">
-        <div class="dir-stat"><b>${records.length}</b><span>طالب معلق</span></div>
-        <div class="dir-stat"><b>${presentCount}</b><span style="color:var(--success)">حاضر</span></div>
-        <div class="dir-stat"><b>${absentCount}</b><span style="color:var(--danger)">غائب</span></div>
-      </div>
-      <div class="dir-actions">
-        <button class="ghost-btn" data-open-group-approvals="${groupId}">⚙️ تفاصيل وتعديل</button>
-        <button class="primary-btn" data-approve-group="${groupId}">✅ اعتماد المجموعة</button>
-      </div>
     `;
-    list.appendChild(card);
+  };
+
+  let html = '';
+
+  // ترتيب: المعلقة أولاً مرتبة من الأقدم للأحدث (حتى تتعامد مع المتأخرة)
+  pendingKeys.sort((a, b) => groupsMap[a].sessionDate.localeCompare(groupsMap[b].sessionDate));
+
+  if (pendingKeys.length > 0) {
+    html += `<div style="margin-bottom: 16px;"><h3 style="font-weight: 900; color: var(--warning);">⏳ حصص قيد الاعتماد</h3></div>`;
+    html += `<div class="approvals-grid" style="margin-bottom: 30px;">`;
+    pendingKeys.forEach(key => html += buildGroupCard(key, groupsMap[key], false));
+    html += `</div>`;
   }
+
+  if (approvedKeys.length > 0) {
+    if (pendingKeys.length > 0) {
+      html += `<hr style="margin: 20px 0; border: none; border-top: 2px dashed var(--panel-border);">`;
+    }
+    html += `<div style="margin-bottom: 16px;"><h3 style="font-weight: 900; color: var(--success);">✅ حصص تم اعتمادها اليوم</h3></div>`;
+    html += `<div class="approvals-grid">`;
+    approvedKeys.forEach(key => html += buildGroupCard(key, groupsMap[key], true));
+    html += `</div>`;
+  }
+
+  list.innerHTML = html;
   refreshSideBadge();
 }
 function initApprovalsActions() {
@@ -1795,56 +1913,63 @@ function initApprovalsActions() {
     const actionBtn = e.target.closest('[data-approve-group], [data-open-group-approvals]');
     if (!actionBtn) return;
 
-    const groupId = actionBtn.dataset.approveGroup || actionBtn.dataset.openGroupApprovals;
+    const groupId     = actionBtn.dataset.approveGroup || actionBtn.dataset.openGroupApprovals;
+    const sessionDate = actionBtn.dataset.sessionDate || new Date().toISOString().slice(0, 10);
 
     if (actionBtn.dataset.approveGroup) {
-      const ok = await askConfirm('اعتماد وتقفيل المجموعة؟', 'سيتم اعتماد الحاضرين، وتسجيل الطلاب الذين لم يحضروا كغياب تلقائياً (بدون إضافة أي مديونية أو رسوم).');
+      const ok = await askConfirm(
+        'اعتماد وتقفيل الحصة؟',
+        `سيتم اعتماد حصة ${sessionDate}. أي طالب لم يُسجَّل سيُضاف كغائب تلقائياً (بدون مديونية).`
+      );
       if (!ok) return;
 
-      // 1. جلب كل الطلاب المسجلين في هذه المجموعة
+      // 1. جلب طلاب المجموعة
+      // 1. جلب طلاب المجموعة
       const students = DB.getStudentsByGroup(groupId);
-      
-      // 2. فحص كل طالب وتحديد حالته
-      for (const student of students) {
-        const record = DB.getRecordForStudentToday(student.id, groupId);
-        
+
+      // 2. استخدام Promise.all لمعالجة الطلاب بالتوازي وتجنب تجميد الشاشة
+      const promises = students.map(async (student) => {
+        const record = DB.cache.dailyRecords.find(
+          r => String(r.student_id) === String(student.id) &&
+               String(r.group_id)   === String(groupId) &&
+               r.session_date       === sessionDate
+        );
+
         if (!record) {
-          // الطالب ليس له سجل نهائياً -> إنشاء سجل "غياب" بـ 0 جنيه ثم اعتماده
+          // الطالب ليس له سجل في هذه الحصة → ننشئ له غياب باليوم الصح
           const newRec = await DB.saveRecord({
             studentId: student.id,
-            groupId: groupId,
+            groupId,
+            sessionDate,
             attendance: 'absent',
             paymentStatus: 'unpaid',
             amountPaid: 0,
-            secretaryName: session?.full_name || 'الإدارة (تقفيل تلقائي)'
+            secretaryName: session?.full_name || 'الإدارة (تقفيل تلقائي)',
           });
           if (newRec) await DB.approveRecord(newRec.id);
         } else if (!record.is_approved) {
-          // الطالب له سجل معلق (حضر أو دفع) -> اعتماده مباشرة
           await DB.approveRecord(record.id);
         }
-      }
+      });
 
-      toast('✅ تم تقفيل المجموعة واعتمادها بنجاح', 'success');
+      await Promise.all(promises);
+
+      toast('✅ تم تقفيل الحصة واعتمادها بنجاح', 'success');
       renderPage(currentPage);
-    } 
+    }
     else if (actionBtn.dataset.openGroupApprovals) {
-      openGroupDetailsModal(groupId);
+      openGroupDetailsModal(groupId, sessionDate);
     }
   });
 
-  $('#approveAllBtn').addEventListener('click', async () => {
-    const pending = DB.getPendingRecords();
-    if (!pending.length) { toast('لا توجد سجلات لاعتمادها'); return; }
-    const ok = await askConfirm('اعتماد السجلات المعلقة؟', `سيتم اعتماد ${pending.length} سجل معلق فقط.`);
-    if (ok) { await DB.approveAll(); toast('✅ تم اعتماد السجلات', 'success'); renderPage(currentPage); }
-  });
+  
 }
 
-function openGroupDetailsModal(groupId) {
-  const group = DB.getGroupById(groupId);
-  // جلب كل الطلاب لإظهار الكشف الكامل للحصة
-  const students = DB.getStudentsByGroup(groupId); 
+// sessionDate اختياري — لو مش موجود يُستخدم تاريخ اليوم
+function openGroupDetailsModal(groupId, sessionDate) {
+  const targetDate = sessionDate || new Date().toISOString().slice(0, 10);
+  const group    = DB.getGroupById(groupId);
+  const students = DB.getStudentsByGroup(groupId);
 
   const oldModal = document.getElementById('dynamicGroupModal');
   if (oldModal) oldModal.remove();
@@ -1854,113 +1979,125 @@ function openGroupDetailsModal(groupId) {
   modal.className = 'modal-overlay';
   modal.style.zIndex = '1000';
 
+  const today       = new Date().toISOString().slice(0, 10);
+  const isToday     = targetDate === today;
+  const dateDisplay = isToday ? 'اليوم' : targetDate;
+
   let html = `
     <div class="glass-panel" style="width: 95%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
       <div class="panel-header">
-        <h2>📝 كشف تقفيل الحصة: ${escapeHtml(group?.grade_level || 'مجموعة')}</h2>
+        <h2>📝 كشف حصة: ${escapeHtml(group?.grade_level || 'مجموعة')} — ${escapeHtml(dateDisplay)}</h2>
         <button class="x-btn" onclick="document.getElementById('dynamicGroupModal').remove(); renderPage(currentPage);">✕</button>
       </div>
       <div class="panel-body" style="overflow-y: auto; flex: 1; padding: 20px; background: var(--bg-page);">
   `;
 
   if (students.length === 0) {
-     html += `<div class="empty-state">لا يوجد طلاب مسجلين في هذه المجموعة</div>`;
+    html += `<div class="empty-state">لا يوجد طلاب مسجلين في هذه المجموعة</div>`;
   } else {
-     html += `<div style="display: flex; flex-direction: column; gap: 16px;">`;
-     
-     students.forEach(student => {
-       const record = DB.getRecordForStudentToday(student.id, groupId);
-       const isApproved = record && record.is_approved;
-       
-       // الإعدادات الافتراضية لمن ليس له سجل (الغياب)
-       const attendance = record ? record.attendance : 'absent';
-       const amountPaid = record ? (record.amount_paid || 0) : 0;
-       const exGrade = (record && record.exam_grade !== null) ? record.exam_grade : '';
-       const hwGrade = (record && record.homework_grade !== null) ? record.homework_grade : '';
-       const teacherNotes = record ? (record.teacher_notes || '') : '';
-       
-       const recordId = record ? record.id : `new-${student.id}`;
+    html += `<div style="display: flex; flex-direction: column; gap: 16px;">`;
 
-       html += `
-         <div class="dir-card glass-panel" id="grp-rec-${recordId}" style="padding: 16px; ${isApproved ? 'opacity: 0.6; border: 1px solid var(--success);' : ''}">
-           <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-             <div style="font-weight: 900; font-size: 16px;">
-               <span id="st-name-${student.id}">${escapeHtml(student.name)}</span>  <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student.student_code)})</span>
+    students.forEach(student => {
+      // ابحث عن سجل الطالب في تاريخ الحصة المحدد — مش today بالضرورة
+      const record = DB.cache.dailyRecords.find(
+        r => String(r.student_id) === String(student.id) &&
+             String(r.group_id)   === String(groupId) &&
+             r.session_date       === targetDate
+      ) || null;
 
-               ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
-               ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ غائب (لم يُسجل اليوم)</span>' : ''}
-             </div>
-             <div style="display:flex; gap: 8px;">
-                ${!isApproved ? `
-                <button class="ghost-btn" style="padding: 8px 16px;" onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}')">💾 حفظ</button>
-                <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);" onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}')">✅ اعتماد</button>
-                ` : ''}
-             </div>
-           </div>
+      const isApproved   = record && record.is_approved;
+      const attendance   = record ? record.attendance : 'absent';
+      const amountPaid   = record ? (record.amount_paid || 0) : 0;
+      const exGrade      = (record && record.exam_grade !== null) ? record.exam_grade : '';
+      const hwGrade      = (record && record.homework_grade !== null) ? record.homework_grade : '';
+      const teacherNotes = record ? (record.teacher_notes || '') : '';
+      const recordId     = record ? record.id : `new-${student.id}-${targetDate}`;
 
-           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px;">
-             <div class="form-group" style="margin:0;">
-               <label>حالة الحضور</label>
-               <select class="field" id="att-${recordId}" ${isApproved ? 'disabled' : ''}>
-                 <option value="present" ${attendance === 'present' ? 'selected' : ''}>✅ حاضر</option>
-                 <option value="absent" ${attendance === 'absent' ? 'selected' : ''}>❌ غائب</option>
-               </select>
-             </div>
-             <div class="form-group" style="margin:0;">
-               <label>المدفوع (ج)</label>
-               <input type="number" class="field" id="paid-${recordId}" value="${amountPaid}" placeholder="0" ${isApproved ? 'disabled' : ''}>
-             </div>
-             <div class="form-group" style="margin:0;">
-           <label>المتبقي (دين)</label>
-           <input type="number" class="field" id="rm-${recordId}" value="${record ? (record.remaining_amount || 0) : 0}" placeholder="0" ${isApproved ? 'disabled' : ''}>
+      html += `
+        <div class="dir-card glass-panel" id="grp-rec-${recordId}" style="padding: 16px; ${isApproved ? 'opacity: 0.6; border: 1px solid var(--success);' : ''}">
+          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div style="font-weight: 900; font-size: 16px;">
+              <span id="st-name-${student.id}">${escapeHtml(student.name)}</span>
+              <span style="color:var(--ink-faint); font-size: 14px;">(#${escapeHtml(student.student_code)})</span>
+              ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
+              ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ لم يُسجَّل في هذه الحصة</span>' : ''}
             </div>
-             <div class="form-group" style="margin:0;">
-               <label>الامتحان</label>
-               <input type="number" class="field" id="ex-${recordId}" value="${exGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
-             </div>
-             <div class="form-group" style="margin:0;">
-               <label>الواجب</label>
-               <input type="number" class="field" id="hw-${recordId}" value="${hwGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
-             </div>
-             <div class="form-group" style="margin:0; grid-column: 1 / -1;">
-               <label>ملاحظات</label>
-               <input type="text" class="field" id="nt-${recordId}" value="${escapeHtml(teacherNotes)}" placeholder="لا توجد ملاحظات" ${isApproved ? 'disabled' : ''}>
-             </div>
-           </div>
-         </div>
-       `;
-     });
-     
-     html += `</div>`;
+            <div style="display:flex; gap: 8px;">
+              ${!isApproved ? `
+              <button class="ghost-btn" style="padding: 8px 16px;"
+                onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">💾 حفظ</button>
+              <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);"
+                onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">✅ اعتماد</button>
+              ` : ''}
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px;">
+            <div class="form-group" style="margin:0;">
+              <label>حالة الحضور</label>
+              <select class="field" id="att-${recordId}" ${isApproved ? 'disabled' : ''}>
+                <option value="present" ${attendance === 'present' ? 'selected' : ''}>✅ حاضر</option>
+                <option value="absent"  ${attendance !== 'present' ? 'selected' : ''}>❌ غائب</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label>المدفوع (ج)</label>
+              <input type="text" inputmode="numeric" class="field" id="paid-${recordId}" value="${amountPaid}" placeholder="0" ${isApproved ? 'disabled' : ''}>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label>المتبقي (دين)</label>
+              <input type="text" inputmode="numeric" class="field" id="rm-${recordId}" value="${record ? (record.remaining_amount || 0) : 0}" placeholder="0" ${isApproved ? 'disabled' : ''}>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label>الامتحان</label>
+              <input type="text" inputmode="numeric" class="field" id="ex-${recordId}" value="${exGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label>الواجب</label>
+              <input type="text" inputmode="numeric" class="field" id="hw-${recordId}" value="${hwGrade}" placeholder="الدرجة" ${isApproved ? 'disabled' : ''}>
+            </div>
+            <div class="form-group" style="margin:0; grid-column: 1 / -1;">
+              <label>ملاحظات</label>
+              <input type="text" class="field" id="nt-${recordId}" value="${escapeHtml(teacherNotes)}" placeholder="لا توجد ملاحظات" ${isApproved ? 'disabled' : ''}>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    html += `</div>`;
   }
 
-  html += `
-      </div>
-    </div>
-  `;
-
+  html += `</div></div>`;
   modal.innerHTML = html;
   document.body.appendChild(modal);
 }
-window.quickSave = async function(recordId, studentId, groupId) {
-  const att = document.getElementById('att-' + recordId).value;
-  const paidVal = document.getElementById('paid-' + recordId).value;
-  const rmVal = document.getElementById('rm-' + recordId) ? document.getElementById('rm-' + recordId).value : 0;
-  const ex = document.getElementById('ex-' + recordId).value;
-  const hw = document.getElementById('hw-' + recordId).value;
-  const nt = document.getElementById('nt-' + recordId).value;
+// sessionDate اختياري — لو مش موجود يُستخدم تاريخ اليوم
+window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
+  const targetDate = sessionDate || new Date().toISOString().slice(0, 10);
 
-  let finalRecordId = recordId;
-  const amountPaid = paidVal !== '' ? Number(paidVal) : 0;
-  const remainingAmount = rmVal !== '' ? Number(rmVal) : 0;
-  const paymentStatus = amountPaid > 0 ? 'paid' : 'unpaid';
+  const att     = document.getElementById('att-'  + recordId).value;
+  const paidVal = document.getElementById('paid-' + recordId).value;
+  const rmEl    = document.getElementById('rm-'   + recordId);
+  const rmVal   = rmEl ? rmEl.value : 0;
+  const ex      = document.getElementById('ex-'   + recordId).value;
+  const hw      = document.getElementById('hw-'   + recordId).value;
+  const nt      = document.getElementById('nt-'   + recordId).value;
+
+  let finalRecordId     = recordId;
+  const amountPaid      = paidVal !== '' ? Number(paidVal) : 0;
+  const remainingAmount = rmVal   !== '' ? Number(rmVal)   : 0;
+  const paymentStatus   = amountPaid > 0 ? 'paid' : 'unpaid';
 
   if (recordId.startsWith('new-')) {
     const rec = await DB.saveRecord({
-      studentId, groupId, attendance: att, paymentStatus: paymentStatus,
-      amountPaid: amountPaid, remainingAmount: remainingAmount,
-      examGrade: ex !== '' ? Number(ex) : null, homeworkGrade: hw !== '' ? Number(hw) : null,
-      teacherNotes: nt, secretaryName: session?.full_name || 'الإدارة'
+      studentId, groupId, sessionDate: targetDate,
+      attendance: att, paymentStatus,
+      amountPaid, remainingAmount,
+      examGrade: ex !== '' ? Number(ex) : null,
+      homeworkGrade: hw !== '' ? Number(hw) : null,
+      teacherNotes: nt,
+      secretaryName: session?.full_name || 'الإدارة',
     });
 
     if (rec) {
@@ -1968,17 +2105,17 @@ window.quickSave = async function(recordId, studentId, groupId) {
       const card = document.getElementById('grp-rec-' + recordId);
       if (card) {
         card.id = 'grp-rec-' + finalRecordId;
-        document.getElementById('att-' + recordId).id = 'att-' + finalRecordId;
+        document.getElementById('att-'  + recordId).id = 'att-'  + finalRecordId;
         document.getElementById('paid-' + recordId).id = 'paid-' + finalRecordId;
-        if (document.getElementById('rm-' + recordId)) document.getElementById('rm-' + recordId).id = 'rm-' + finalRecordId;
+        if (rmEl) rmEl.id = 'rm-' + finalRecordId;
         document.getElementById('ex-' + recordId).id = 'ex-' + finalRecordId;
         document.getElementById('hw-' + recordId).id = 'hw-' + finalRecordId;
         document.getElementById('nt-' + recordId).id = 'nt-' + finalRecordId;
 
         const saveBtn = card.querySelector('.ghost-btn');
-        const appBtn = card.querySelector('.primary-btn');
-        if(saveBtn) saveBtn.setAttribute('onclick', `window.quickSave('${finalRecordId}', '${studentId}', '${groupId}')`);
-        if(appBtn) appBtn.setAttribute('onclick', `window.quickApprove('${finalRecordId}', '${studentId}', '${groupId}')`);
+        const appBtn  = card.querySelector('.primary-btn');
+        if (saveBtn) saveBtn.setAttribute('onclick', `window.quickSave('${finalRecordId}', '${studentId}', '${groupId}', '${targetDate}')`);
+        if (appBtn)  appBtn.setAttribute('onclick',  `window.quickApprove('${finalRecordId}', '${studentId}', '${groupId}', '${targetDate}')`);
 
         const warningBadge = card.querySelector('span[style*="var(--warning)"]');
         if (warningBadge) warningBadge.remove();
@@ -1986,9 +2123,11 @@ window.quickSave = async function(recordId, studentId, groupId) {
     }
   } else {
     await DB.updateRecord(finalRecordId, {
-      attendance: att, amountPaid: amountPaid, remainingAmount: remainingAmount,
-      paymentStatus: paymentStatus, examGrade: ex !== '' ? Number(ex) : null,
-      homeworkGrade: hw !== '' ? Number(hw) : null, teacherNotes: nt
+      attendance: att, amountPaid, remainingAmount,
+      paymentStatus,
+      examGrade: ex !== '' ? Number(ex) : null,
+      homeworkGrade: hw !== '' ? Number(hw) : null,
+      teacherNotes: nt,
     });
   }
 
@@ -1996,91 +2135,39 @@ window.quickSave = async function(recordId, studentId, groupId) {
   return finalRecordId;
 };
 
-window.quickApprove = async function(recordId, studentId, groupId) {
-  // حفظ التعديلات أولاً ثم الاعتماد
-  const finalRecordId = await window.quickSave(recordId, studentId, groupId); 
+window.quickApprove = async function(recordId, studentId, groupId, sessionDate) {
+  const finalRecordId = await window.quickSave(recordId, studentId, groupId, sessionDate);
   if (finalRecordId) {
     await DB.approveRecord(finalRecordId);
     toast('✅ تم اعتماد الطالب', 'success');
-    
-    // إخفاء كارت الطالب بعد اعتماده لتنظيف الكشف تدريجياً
     const card = document.getElementById('grp-rec-' + finalRecordId);
     if (card) {
       card.style.opacity = '0.5';
       card.style.pointerEvents = 'none';
-      setTimeout(() => card.remove(), 400); 
+      setTimeout(() => card.remove(), 400);
     }
   }
 };
 /* ---------------- Edit modal ---------------- */
-function openEditModal(recordId) {
-  const record = DB.getPendingRecords().find(r => String(r.id) === String(recordId));
-  if (!record) return;
-  const student = DB.getStudentById(record.student_id);
-  pendingEditId = recordId;
 
-  $('#editStudentName').textContent = `${student.name} — #${student.student_code}`;
-  $('#editPresentBtn').classList.toggle('active', record.attendance === 'present');
-  $('#editAbsentBtn').classList.toggle('active', record.attendance === 'absent');
-  $('#editPaidBtn').classList.toggle('active', record.payment_status === 'paid');
-  $('#editUnpaidBtn').classList.toggle('active', record.payment_status === 'unpaid');
-  $('#editHomeworkMax').value = record.homework_out_of ?? 20;
-  $('#editExamMax').value = record.exam_out_of ?? 20;
-  $('#editHomeworkGrade').value = record.homework_grade ?? '';
-  $('#editExamGrade').value = record.exam_grade ?? '';
-  $('#editAmountPaid').value = record.amount_paid ?? 0;
-  $('#editNotes').value = record.teacher_notes ?? '';
-  $('#editModal').classList.remove('hidden');
-  $('#editRemainingAmount').value = record.remaining_amount ?? 0;
-}
-function initEditModal() {
-  $('#editModalClose').addEventListener('click', () => $('#editModal').classList.add('hidden'));
-  $('#editPresentBtn').addEventListener('click', () => { $('#editPresentBtn').classList.add('active'); $('#editAbsentBtn').classList.remove('active'); });
-  $('#editAbsentBtn').addEventListener('click', () => { $('#editAbsentBtn').classList.add('active'); $('#editPresentBtn').classList.remove('active'); });
-  $('#editPaidBtn').addEventListener('click', () => { $('#editPaidBtn').classList.add('active'); $('#editUnpaidBtn').classList.remove('active'); });
-  $('#editUnpaidBtn').addEventListener('click', () => { $('#editUnpaidBtn').classList.add('active'); $('#editPaidBtn').classList.remove('active'); });
-
-  $('#saveEditBtn').addEventListener('click', async () => {
-    if (!pendingEditId) return;
-    const record = DB.getPendingRecords().find(r => String(r.id) === String(pendingEditId));
-    const prevPaid = Number(record?.amount_paid) || 0;
-    const newPaid = Number($('#editAmountPaid').value) || 0;
-
-    await DB.updateRecord(pendingEditId, {
-      attendance: $('#editPresentBtn').classList.contains('active') ? 'present' : $('#editAbsentBtn').classList.contains('active') ? 'absent' : 'none',
-      paymentStatus: $('#editPaidBtn').classList.contains('active') ? 'paid' : 'unpaid',
-      homeworkMax: Number($('#editHomeworkMax').value),
-      examMax: Number($('#editExamMax').value),
-      homeworkGrade: $('#editHomeworkGrade').value || null,
-      examGrade: $('#editExamGrade').value || null,
-      amountPaid: newPaid,
-      remainingAmount: Number($('#editRemainingAmount').value) || 0,
-      teacherNotes: $('#editNotes').value,
-    });
-
-    // إذا تغيّر المبلغ المدفوع، عدّل مديونية الطالب بالفارق
-    
-
-    $('#editModal').classList.add('hidden');
-    toast('✅ تم حفظ التعديلات', 'success');
-    renderPage(currentPage);
-  });
-
-  $('#deleteRecordBtn').addEventListener('click', async () => {
-    const ok = await askConfirm('حذف السجل؟', 'سيتم حذف هذا السجل نهائيًا قبل اعتماده.');
-    if (ok && pendingEditId) {
-      await DB.deleteRecord(pendingEditId);
-      $('#editModal').classList.add('hidden');
-      toast('🗑️ تم حذف السجل');
-      renderPage(currentPage);
-    }
-  });
-}
 
 /* ==========================================================================
    Global wiring
    ========================================================================== */
 function initGlobalUi() {
+  // تحويل الأرقام العربية إلى إنجليزية تلقائياً في أي خانة أرقام
+  // تحويل الأرقام العربية إلى إنجليزية تلقائياً في أي خانة أرقام
+  document.addEventListener('input', function (e) {
+    if (e.target.inputMode === 'numeric' || e.target.type === 'number') {
+      const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+      let value = e.target.value;
+      for (let i = 0; i < 10; i++) {
+        const regex = new RegExp(arabicDigits[i], 'g');
+        value = value.replace(regex, i);
+      }
+      e.target.value = value;
+    }
+  });
   // التحديث التلقائي للواجهة لما يجي إشعار من قاعدة البيانات
   window.addEventListener('db_updated', () => {
     if (typeof renderPage === 'function' && currentPage) {
@@ -2137,8 +2224,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initAddStudentModal();
   initScanner();
   initApprovalsActions();
-  initEditModal();
-
   // حفظ الجلسة عند الـ Refresh: لو فيه جلسة محفوظة في localStorage، ندخل مباشرة بدون شاشة تسجيل الدخول
   try {
     const savedSession = localStorage.getItem('attef_session');
