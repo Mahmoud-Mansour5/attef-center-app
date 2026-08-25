@@ -1133,9 +1133,9 @@ function groupColor(seedStr) {
   for (const ch of (seedStr || '')) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
   return palette[hash % palette.length];
 }
-function statusOf(studentId) {
-  if (DB.getApprovedRecordForStudentToday(studentId)) return { cls: 'approved', label: 'مُعتمد ✅' };
-  if (DB.getPendingRecordForStudentToday(studentId)) return { cls: 'pending', label: 'بانتظار الاعتماد' };
+function statusOf(studentId, groupId) {
+  if (DB.getApprovedRecordForStudentToday(studentId, groupId)) return { cls: 'approved', label: 'مُعتمد ✅' };
+  if (DB.getPendingRecordForStudentToday(studentId, groupId)) return { cls: 'pending', label: 'بانتظار الاعتماد' };
   return { cls: '', label: 'لم يُسجَّل بعد' };
 }
 function renderStudentsList(filterOverride) {
@@ -1198,23 +1198,19 @@ function renderStudentsList(filterOverride) {
       debtDetailsBody.innerHTML = '';
     }
 
-    const status = statusOf(student.id);
-    const pill = node.querySelector('[data-role="statusPill"]');
-    pill.textContent = status.label;
-    pill.className = `status-chip ${status.cls}`.trim();
-
-    // فلترة مجاميع اليوم فقط: لو مادة واحدة تُختار تلقائياً، لو أكثر تظهر كقائمة منسدلة، لو ولا مجموعة تظهر رسالة تنبيه
-    // إظهار كل المجاميع المشترك بها الطالب لتسهيل التعويض أو الحضور في غير يومه
     node.querySelector('[data-role="todayDayLabel"]').textContent = 'كل المجموعات';
     const groupSelect = node.querySelector('[data-field="todayGroup"]');
     const noGroupNote = node.querySelector('[data-role="noGroupTodayNote"]');
-    noGroupNote.textContent = '⚠️ الطالب غير مسجل بأي مجموعة'; // تعديل النص
-    const todaysGroups = DB.getGroupsForStudent(student.id); // جلب كل المجاميع بدون تقييد باليوم
+    noGroupNote.textContent = '⚠️ الطالب غير مسجل بأي مجموعة'; 
+    const todaysGroups = DB.getGroupsForStudent(student.id); 
+    
     if (todaysGroups.length) {
       groupSelect.innerHTML = todaysGroups.map(g => {
         const teacher = DB.getTeacherById(g.teacher_id);
         const subject = DB.getSubjects().find(s => s.id === g.subject_id);
-        const label = `${subject?.name || g.grade_level || 'مجموعة'} — ${teacher ? teacher.name : ''}`.trim();
+        let label = `${subject?.name || g.grade_level || 'مجموعة'} — ${teacher ? teacher.name : ''}`.trim();
+        if (g.day_of_week) label += ` — ${g.day_of_week}`;
+        if (g.time_start) label += ` ${formatTime12h(g.time_start)}`;
         return `<option value="${g.id}" data-price="${g.price_per_session || 0}">${escapeHtml(label)}</option>`;
       }).join('');
       groupSelect.disabled = todaysGroups.length === 1;
@@ -1228,23 +1224,71 @@ function renderStudentsList(filterOverride) {
     const paidInput = node.querySelector('[data-field="paidNow"]');
     const remainingInput = node.querySelector('[data-field="remainingAmount"]');
     const presentCheck = node.querySelector('[data-field="presentCheck"]');
-    
-
+    const saveBtn = node.querySelector('[data-action="save"]');
     const timeChip = node.querySelector('[data-role="timeInChip"]');
-    // يبحث عن سجل اليوم بحسب المجموعة المختارة حالياً (أول مجموعة اليوم افتراضياً)
-    const defaultGroupId = todaysGroups[0]?.id || null;
-    const existing = DB.getPendingRecordForStudentToday(student.id, defaultGroupId) || DB.getApprovedRecordForStudentToday(student.id, defaultGroupId);
-    if (existing) {
-      if (existing.group_id) groupSelect.value = existing.group_id;
-      if (existing.amount_paid) paidInput.value = existing.amount_paid;
-      presentCheck.checked = existing.attendance === 'present';
-      if (existing.remaining_amount !== undefined) remainingInput.value = existing.remaining_amount;
-      if (existing.time_in && existing.attendance === 'present') {
-        timeChip.textContent = `⏱ وقت الحضور: ${formatTime12h(existing.time_in)}`;
-        timeChip.classList.add('recorded');
+    const pill = node.querySelector('[data-role="statusPill"]'); // ➕ سحبنا البادج
+
+    // دالة تحديث حالة وقفل الكارت بناءً على المجموعة المختارة
+    const updateCardState = (groupId) => {
+      if (!groupId) {
+         pill.textContent = 'لم يُسجَّل بعد';
+         pill.className = 'status-chip';
+         return;
       }
+      const rec = DB.getRecordForStudentToday(student.id, groupId);
+
+      // ➕ تحديث حالة البادج (علامة الحضور/الاعتماد) بناءً على الحصة المختارة
+      const status = statusOf(student.id, groupId);
+      pill.textContent = status.label;
+      pill.className = `status-chip ${status.cls}`.trim();
+
+      if (rec) {
+        // الحصة متسجلة: عرض البيانات وقفل الخانات والزرار وعلامة الحضور
+        paidInput.value = rec.amount_paid ?? 0;
+        remainingInput.value = rec.remaining_amount ?? 0;
+        presentCheck.checked = rec.attendance === 'present';
+        
+        if (rec.time_in && rec.attendance === 'present') {
+          timeChip.textContent = `⏱ وقت الحضور: ${formatTime12h(rec.time_in)}`;
+          timeChip.classList.add('recorded');
+        } else {
+          timeChip.textContent = '❌ غائب / مسجل بدون وقت';
+          timeChip.classList.remove('recorded');
+        }
+
+        paidInput.disabled = true;
+        remainingInput.disabled = true;
+        presentCheck.disabled = true;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span>✅</span> تم حفظ الحصة';
+        saveBtn.style.opacity = '0.6';
+      } else {
+        // الحصة لسه ممدفعتش: فتح الخانات وتصفيرها وتفعيل علامة الحضور
+        const grp = DB.getGroupById(groupId);
+        const price = Number(grp?.price_per_session) || 0;
+
+        paidInput.value = '';
+        remainingInput.value = price; 
+        presentCheck.checked = true;
+
+        timeChip.textContent = '⏱ لم يُسجَّل حضور بعد';
+        timeChip.classList.remove('recorded');
+
+        paidInput.disabled = false;
+        remainingInput.disabled = false;
+        presentCheck.disabled = false;
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<span>💾</span> حفظ البيانات';
+        saveBtn.style.opacity = '1';
+      }
+    };
+
+    if (todaysGroups.length) {
+      updateCardState(groupSelect.value); // استدعاء أول ما الكارت يفتح
+      groupSelect.addEventListener('change', () => {
+        updateCardState(groupSelect.value); // استدعاء لو السكرتيرة غيرت المادة
+      });
     }
-     // تعيين "المبلغ المتبقي" الافتراضي = سعر حصة المجموعة المختارة
 
     list.appendChild(node);
   });
@@ -1445,12 +1489,15 @@ function renderAddStudentGroupsCart() {
     renderAddStudentGroupsCart();
   }));
 }
-function groupCartLabel(groupId) {
+ function groupCartLabel(groupId) {
   const group = DB.getGroupById(groupId);
   if (!group) return 'مادة';
   const teacher = DB.getTeacherById(group.teacher_id);
   const subject = DB.getSubjects().find(s => s.id === group.subject_id);
-  return `${subject?.name || group.grade_level || 'مادة'} — ${teacher ? teacher.name : ''}`.trim();
+  let label = `${subject?.name || group.grade_level || 'مادة'} — ${teacher ? teacher.name : ''}`.trim();
+  if (group.day_of_week) label += ` — ${group.day_of_week}`;
+  if (group.time_start) label += ` ${formatTime12h(group.time_start)}`;
+  return label;
 }
 function initAddStudentModal() {
   const openBtn = () => {
@@ -1657,10 +1704,7 @@ function renderTeacherStudentsList(groupId) {
     node.querySelector('.s-id').textContent = student.student_code;
     node.querySelector('.tag-group').textContent = student.grade_level || '—';
 
-    const status = statusOf(student.id);
-    const pill = node.querySelector('[data-role="statusPill"]');
-    pill.textContent = status.label;
-    pill.className = `status-chip ${status.cls}`.trim();
+     
 
     const existing = DB.getPendingRecordForStudentToday(student.id, groupId) || DB.getApprovedRecordForStudentToday(student.id, groupId);
     const isAbsent = existing?.attendance === 'absent'; // فحص الغياب
