@@ -1228,6 +1228,17 @@ function renderStudentsList(filterOverride) {
     const timeChip = node.querySelector('[data-role="timeInChip"]');
     const pill = node.querySelector('[data-role="statusPill"]'); // ➕ سحبنا البادج
 
+    // 🎨 تلوين الخانات للفت الانتباه (الدفع أخضر، الدين أحمر)
+    paidInput.style.backgroundColor = '#ebfbee';
+    paidInput.style.borderColor = '#34ad78';
+    paidInput.style.color = '#1f7d55';
+    paidInput.style.fontWeight = '900';
+
+    remainingInput.style.backgroundColor = '#fdf3f3';
+    remainingInput.style.borderColor = '#d5484a';
+    remainingInput.style.color = '#b32d2f';
+    remainingInput.style.fontWeight = '900';
+
     // دالة تحديث حالة وقفل الكارت بناءً على المجموعة المختارة
     const updateCardState = (groupId) => {
       if (!groupId) {
@@ -1269,7 +1280,7 @@ function renderStudentsList(filterOverride) {
 
         paidInput.value = '';
         remainingInput.value = price; 
-        presentCheck.checked = true;
+        presentCheck.checked = false; // 👈 خلينا الديفولت فاضي بدون صح
 
         timeChip.textContent = '⏱ لم يُسجَّل حضور بعد';
         timeChip.classList.remove('recorded');
@@ -1348,6 +1359,13 @@ async function saveCardRecord(card, studentId) {
   if (!groupId) { toast('⚠️ الطالب غير مسجل بأي مجموعة تُقام اليوم، لا يمكن الحفظ', 'error'); return; }
 
   const isPresent = card.querySelector('[data-field="presentCheck"]').checked;
+  
+  // ⛔ شرط إجباري: منع الحفظ لو مش متعلم على حاضر
+  if (!isPresent) { 
+    toast('⚠️ لا يمكن حفظ البيانات بدون إثبات الحضور (علّم على حاضر أولاً)', 'error'); 
+    return; 
+  }
+
   const paidNow = Math.max(0, Number(card.querySelector('[data-field="paidNow"]').value) || 0);
   const remainingAmount = Math.max(0, Number(card.querySelector('[data-field="remainingAmount"]').value) || 0);
   const paymentStatus = paidNow > 0 ? 'paid' : 'unpaid';
