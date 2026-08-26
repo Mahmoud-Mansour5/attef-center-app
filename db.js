@@ -10,7 +10,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const DB = (() => {
-  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const todayStr = () => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
   const nowTimeStr = () => new Date().toTimeString().slice(0, 8); // HH:MM:SS
   const AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   const todayDayName = () => AR_DAYS[new Date().getDay()]; // اسم اليوم الحالي بالعربي (يطابق قيم day_of_week في جدول groups)
@@ -537,7 +540,7 @@ const DB = (() => {
       if (idx > -1) cache.dailyRecords[idx] = data;
       return data;
     },
-    
+
     async deleteRecord(id) {
       const existing = cache.dailyRecords.find(r => String(r.id) === String(id));
       if (existing) {

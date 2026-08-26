@@ -620,8 +620,57 @@ function initTeacherModal() {
    Groups page (admin) — مع دعم الإضافة والتعديل الكامل
    ========================================================================== */
 function renderGroupsPage() {
-  const groups = DB.getGroups();
+  // 1. زراعة الفلاتر (القوائم المنسدلة) ديناميكياً فوق شبكة المجموعات
+  let filterContainer = $('#groupsFilterContainer');
   const grid = $('#groupsGrid');
+  
+  if (!filterContainer) {
+    filterContainer = document.createElement('div');
+    filterContainer.id = 'groupsFilterContainer';
+    filterContainer.className = 'form-row';
+    filterContainer.style.cssText = 'margin-bottom: 20px; display: flex; gap: 12px;';
+    filterContainer.innerHTML = `
+      <div class="form-group" style="flex: 1; margin: 0;">
+        <select class="field" id="groupsGradeFilter">
+          <option value="all">كل المراحل الدراسية</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex: 1; margin: 0;">
+        <select class="field" id="groupsTeacherFilter">
+          <option value="all">كل المدرسين</option>
+        </select>
+      </div>
+    `;
+    // وضع الفلاتر قبل شبكة المجموعات مباشرة
+    grid.parentNode.insertBefore(filterContainer, grid);
+
+    // ربط التغيير في الفلاتر بإعادة رسم الصفحة
+    $('#groupsTeacherFilter').addEventListener('change', renderGroupsPage);
+    $('#groupsGradeFilter').addEventListener('change', renderGroupsPage);
+  }
+
+  // 2. تعبئة القوائم ببيانات المدرسين والمراحل والاحتفاظ بالاختيار الحالي
+  const teacherSel = $('#groupsTeacherFilter');
+  const gradeSel = $('#groupsGradeFilter');
+  const curTeacher = teacherSel.value;
+  const curGrade = gradeSel.value;
+
+  teacherSel.innerHTML = '<option value="all">كل المدرسين</option>' + DB.getTeachers().map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+  teacherSel.value = curTeacher || 'all';
+
+  gradeSel.innerHTML = '<option value="all">كل المراحل الدراسية</option>' + DB.getGradeLevels().map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join('');
+  gradeSel.value = curGrade || 'all';
+
+  // 3. فلترة المجموعات بناءً على الاختيار
+  let groups = DB.getGroups();
+  if (curGrade && curGrade !== 'all') {
+    groups = groups.filter(g => g.grade_level === curGrade);
+  }
+  if (curTeacher && curTeacher !== 'all') {
+    groups = groups.filter(g => String(g.teacher_id) === String(curTeacher));
+  }
+
+  // 4. رسم المجموعات بعد الفلترة
   grid.innerHTML = '';
   $('#groupsEmpty').classList.toggle('hidden', groups.length > 0);
 
@@ -1201,8 +1250,8 @@ function renderStudentsList(filterOverride) {
     node.querySelector('[data-role="todayDayLabel"]').textContent = 'كل المجموعات';
     const groupSelect = node.querySelector('[data-field="todayGroup"]');
     const noGroupNote = node.querySelector('[data-role="noGroupTodayNote"]');
-    noGroupNote.textContent = '⚠️ الطالب غير مسجل بأي مجموعة'; 
-    const todaysGroups = DB.getGroupsForStudent(student.id); 
+    noGroupNote.textContent = '⚠️ الطالب غير مسجل بأي مجموعة اليوم'; 
+    const todaysGroups = DB.getGroupsForStudentToday(student.id); // 👈 دي هتجيب مجاميع اليوم الحالي بس 
     
     if (todaysGroups.length) {
       groupSelect.innerHTML = todaysGroups.map(g => {
@@ -1276,10 +1325,9 @@ function renderStudentsList(filterOverride) {
       } else {
         // الحصة لسه ممدفعتش: فتح الخانات وتصفيرها وتفعيل علامة الحضور
         const grp = DB.getGroupById(groupId);
-        const price = Number(grp?.price_per_session) || 0;
 
         paidInput.value = '';
-        remainingInput.value = price; 
+        remainingInput.value = ''; // 👈 مسحنا السعر التلقائي عشان السكرتير يدخله براحته
         presentCheck.checked = false; // 👈 خلينا الديفولت فاضي بدون صح
 
         timeChip.textContent = '⏱ لم يُسجَّل حضور بعد';
@@ -1847,7 +1895,8 @@ function renderApprovalsPage() {
   const list = $('#approvalsList');
   list.className = '';
 
-  const today = new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const allRecords = DB.getDailyRecords();
 
   // السجلات المعلقة من أي يوم + السجلات المعتمدة من النهاردة فقط
