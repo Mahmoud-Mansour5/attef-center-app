@@ -450,8 +450,12 @@ const DB = (() => {
       const oldRemaining = Number(existing?.remaining_amount) || 0;
       const newRemaining = record.remainingAmount !== undefined ? Number(record.remainingAmount) : oldRemaining;
 
+      // سحب اسم الطالب لرفعه للداتا بيز
+      const studentObj = cache.students.find(s => String(s.id) === String(record.studentId));
+
       const payload = {
         student_id: record.studentId,
+        student_name: studentObj ? studentObj.name : '', // 👈 العمود الجديد
         group_id: groupId,
         session_date: today,
         time_in: record.timeIn ?? existing?.time_in ?? nowTimeStr(),

@@ -20,6 +20,14 @@ let editingGroupId = null;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const fmt = (n) => Number(n || 0).toLocaleString('ar-EG');
+
+// دالة جلب التاريخ المحلي الصحيح (توقيت مصر) لمنع مشاكل جرينتش
+function getLocalDate() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
 // دالة تحويل الوقت من 24 لـ 12 ساعة (ص/م)
 function formatTime12h(timeStr) {
   if (!timeStr) return '';
@@ -32,6 +40,7 @@ function formatTime12h(timeStr) {
   h = h ? h : 12; // الصفر (منتصف الليل) يتحول لـ 12
   return `${h}:${m} ${ampm}`;
 }
+
 /* ==========================================================================
    Theme
    ========================================================================== */
@@ -1925,8 +1934,17 @@ function renderApprovalsPage() {
   const pendingKeys  = [];
   const approvedKeys = [];
   for (const [key, data] of Object.entries(groupsMap)) {
-    if (data.hasPending) pendingKeys.push(key);
-    else approvedKeys.push(key);
+    // 🎯 تفكير سيستم متقدم: نفلتر الطلبة اللي انضموا للمجموعة "قبل أو في نفس" تاريخ الحصة بس!
+    const sgRecords = DB.cache.studentGroups.filter(sg => String(sg.group_id) === String(data.groupId));
+    const activeStudentIds = sgRecords.filter(sg => (sg.joined_at || '').slice(0, 10) <= data.sessionDate).map(sg => sg.student_id);
+
+    const hasMissingRecords = data.records.length < activeStudentIds.length;
+
+    if (data.hasPending || hasMissingRecords) {
+      pendingKeys.push(key);
+    } else {
+      approvedKeys.push(key);
+    }
   }
 
   // دالة بناء كارت المجموعة — تستخدم key بدل groupId
@@ -1958,9 +1976,14 @@ function renderApprovalsPage() {
     const totalCollected = records.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0);
     const totalRemaining = records.reduce((sum, r) => sum + (Number(r.remaining_amount) || 0), 0);
 
+    // 🎯 السر هنا: نتحقق هل كل الطلبة اتعملهم سجل فعلاً ولا في حد لسه "لم يُسجل"؟
+    const hasMissingRecords = records.length < studentsInGroup.length;
+    // الحصة مش معتمدة كلياً إلا لو (كل السجلات معتمدة + مفيش ولا طالب ناقص)
+    const trulyApproved = isFullyApproved && !hasMissingRecords;
+
     // نحفظ group_id و session_date في dataset عشان زر الاعتماد يعرف ياخدهم
     return `
-      <div class="dir-card glass-panel tilt shine" style="${isFullyApproved ? 'opacity: 0.85; border: 1px solid var(--success);' : ''}">
+      <div class="dir-card glass-panel tilt shine" style="${trulyApproved ? 'opacity: 0.85; border: 1px solid var(--success);' : ''}">
         <div class="dir-card-head">
           <div class="dir-avatar">🏷️</div>
           <div>
@@ -1984,7 +2007,7 @@ function renderApprovalsPage() {
           <button class="ghost-btn"
             data-open-group-approvals="${groupId}"
             data-session-date="${sessionDate}">⚙️ تفاصيل وتعديل</button>
-          ${!isFullyApproved
+          ${!trulyApproved
             ? `<button class="primary-btn"
                 data-approve-group="${groupId}"
                 data-session-date="${sessionDate}">✅ اعتماد الحصة</button>`
@@ -2034,28 +2057,20 @@ function initApprovalsActions() {
       );
       if (!ok) return;
 
-      // 1. جلب طلاب المجموعة
-      // 1. جلب طلاب المجموعة
-      const students = DB.getStudentsByGroup(groupId);
+      // جلب الطلاب النشطين وقت الحصة دي بس (عشان ميعملش غياب لطلبة لسه مسجلين جديد)
+      const sgRecords = DB.cache.studentGroups.filter(sg => String(sg.group_id) === String(groupId));
+      const activeStudentIds = sgRecords.filter(sg => (sg.joined_at || '').slice(0, 10) <= sessionDate).map(sg => sg.student_id);
+      const students = DB.cache.students.filter(s => activeStudentIds.includes(s.id));
 
-      // 2. استخدام Promise.all لمعالجة الطلاب بالتوازي وتجنب تجميد الشاشة
       const promises = students.map(async (student) => {
         const record = DB.cache.dailyRecords.find(
-          r => String(r.student_id) === String(student.id) &&
-               String(r.group_id)   === String(groupId) &&
-               r.session_date       === sessionDate
+          r => String(r.student_id) === String(student.id) && String(r.group_id) === String(groupId) && r.session_date === sessionDate
         );
 
         if (!record) {
-          // الطالب ليس له سجل في هذه الحصة → ننشئ له غياب باليوم الصح
+          // الطالب ملوش سجل -> نكريت ليه غياب أوتوماتيك
           const newRec = await DB.saveRecord({
-            studentId: student.id,
-            groupId,
-            sessionDate,
-            attendance: 'absent',
-            paymentStatus: 'unpaid',
-            amountPaid: 0,
-            secretaryName: session?.full_name || 'الإدارة (تقفيل تلقائي)',
+            studentId: student.id, groupId, sessionDate, attendance: 'absent', paymentStatus: 'unpaid', amountPaid: 0, secretaryName: session?.full_name || 'الإدارة (تقفيل تلقائي)',
           });
           if (newRec) await DB.approveRecord(newRec.id);
         } else if (!record.is_approved) {
@@ -2064,7 +2079,6 @@ function initApprovalsActions() {
       });
 
       await Promise.all(promises);
-
       toast('✅ تم تقفيل الحصة واعتمادها بنجاح', 'success');
       renderPage(currentPage);
     }
@@ -2072,15 +2086,16 @@ function initApprovalsActions() {
       openGroupDetailsModal(groupId, sessionDate);
     }
   });
-
-  
 }
-
 // sessionDate اختياري — لو مش موجود يُستخدم تاريخ اليوم
 function openGroupDetailsModal(groupId, sessionDate) {
   const targetDate = sessionDate || new Date().toISOString().slice(0, 10);
   const group    = DB.getGroupById(groupId);
-  const students = DB.getStudentsByGroup(groupId);
+  
+  // جلب الطلاب اللي كانوا في المجموعة وقت الحصة دي بس
+  const sgRecords = DB.cache.studentGroups.filter(sg => String(sg.group_id) === String(groupId));
+  const activeStudentIds = sgRecords.filter(sg => (sg.joined_at || '').slice(0, 10) <= targetDate).map(sg => sg.student_id);
+  const students = DB.cache.students.filter(s => activeStudentIds.includes(s.id));
 
   const oldModal = document.getElementById('dynamicGroupModal');
   if (oldModal) oldModal.remove();
@@ -2133,13 +2148,17 @@ function openGroupDetailsModal(groupId, sessionDate) {
               ${isApproved ? '<span class="status-chip approved" style="margin-right:10px;">✅ معتمد</span>' : ''}
               ${!record ? '<span class="status-chip" style="margin-right:10px; background:var(--warning-bg); color:var(--warning);">⚠️ لم يُسجَّل في هذه الحصة</span>' : ''}
             </div>
-            <div style="display:flex; gap: 8px; flex-wrap: wrap;">
-              ${!isApproved ? `
+            <div id="action-btns-${recordId}" style="display:flex; gap: 8px; flex-wrap: wrap;">
+              ${!record ? `
+              <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #f39c12, #d35400);"
+                onclick="window.quickCreateAbsence('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">💾 إنشاء سجل غياب</button>
+              ` : (!isApproved ? `
               <button class="ghost-btn" style="padding: 8px 16px;"
                 onclick="window.quickSave('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">💾 حفظ</button>
               <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);"
                 onclick="window.quickApprove('${recordId}', '${student.id}', '${groupId}', '${targetDate}')">✅ اعتماد</button>
-              ` : ''}
+              ` : '')}
+              
               ${record ? `
               <button class="ghost-btn danger" style="padding: 8px 16px; border-color: var(--danger); color: var(--danger);"
                 onclick="window.quickDelete('${record.id}', 'grp-rec-${recordId}')">🗑️ حذف السجل</button>
@@ -2250,6 +2269,35 @@ window.quickSave = async function(recordId, studentId, groupId, sessionDate) {
   return finalRecordId;
 };
 
+window.quickCreateAbsence = async function(recordId, studentId, groupId, sessionDate) {
+  const targetDate = sessionDate || new Date().toISOString().slice(0, 10);
+  
+  // 1. تعيين حالة الغياب وتصفير المبالغ في الواجهة
+  document.getElementById('att-' + recordId).value = 'absent';
+  document.getElementById('paid-' + recordId).value = '0';
+  if (document.getElementById('rm-' + recordId)) {
+    document.getElementById('rm-' + recordId).value = '0';
+  }
+  
+  // الاحتفاظ بحاوية الأزرار قبل تغير الـ ID
+  const btnContainer = document.getElementById('action-btns-' + recordId);
+  
+  // 2. استدعاء دالة الحفظ لإنشاء الريكورد في قاعدة البيانات
+  const finalRecordId = await window.quickSave(recordId, studentId, groupId, targetDate);
+  
+  // 3. قلب الأزرار للوضع الطبيعي إذا نجح الحفظ
+  if (finalRecordId && btnContainer) {
+    btnContainer.id = 'action-btns-' + finalRecordId;
+    btnContainer.innerHTML = `
+      <button class="ghost-btn" style="padding: 8px 16px;"
+        onclick="window.quickSave('${finalRecordId}', '${studentId}', '${groupId}', '${targetDate}')">💾 حفظ</button>
+      <button class="primary-btn" style="padding: 8px 16px; background: linear-gradient(160deg, #34ad78, #1f7d55);"
+        onclick="window.quickApprove('${finalRecordId}', '${studentId}', '${groupId}', '${targetDate}')">✅ اعتماد</button>
+      <button class="ghost-btn danger" style="padding: 8px 16px; border-color: var(--danger); color: var(--danger);"
+        onclick="window.quickDelete('${finalRecordId}', 'grp-rec-${finalRecordId}')">🗑️ حذف السجل</button>
+    `;
+  }
+};
 window.quickApprove = async function(recordId, studentId, groupId, sessionDate) {
   const finalRecordId = await window.quickSave(recordId, studentId, groupId, sessionDate);
   if (finalRecordId) {
