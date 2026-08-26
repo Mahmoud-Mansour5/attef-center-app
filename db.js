@@ -385,7 +385,8 @@ const DB = (() => {
     async adjustStudentDebt(id, deltaAmount) {
       const student = this.getStudentById(id);
       if (!student) return null;
-      const newDebt = Math.max(0, Number(student.total_debt || 0) + Number(deltaAmount || 0));
+      // شيلنا Math.max عشان نسمح إن الدين ينزل للسالب (لو الطالب ليه فلوس زيادة)
+      const newDebt = Number(student.total_debt || 0) + Number(deltaAmount || 0);
       return this.updateStudent(id, { totalDebt: newDebt });
     },
     async deleteStudent(id) {

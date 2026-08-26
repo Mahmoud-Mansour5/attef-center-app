@@ -1236,11 +1236,30 @@ function renderStudentsList(filterOverride) {
     node.querySelector('.s-id').textContent = student.student_code;
     node.querySelector('.tag-group').textContent = student.grade_level || '—';
 
+    // === 1. حساب عدد المواد ===
+    const subjCount = DB.getStudentGroupIds(student.id).length;
+    let countText = 'غير مسجل';
+    if (subjCount === 1) countText = 'مادة واحدة';
+    else if (subjCount === 2) countText = 'مادتين';
+    else if (subjCount >= 3 && subjCount <= 10) countText = `${subjCount} مواد`;
+    else if (subjCount > 10) countText = `${subjCount} مادة`;
+    const countTag = node.querySelector('.tag-subjects-count');
+    if (countTag) countTag.textContent = countText;
+
+    // === 2. المديونية وتسديد الدين ===
     const debtBox = node.querySelector('[data-role="debtBox"]');
     const debtAmount = node.querySelector('[data-role="debtAmount"]');
+    const payDebtForm = node.querySelector('[data-role="payDebtForm"]');
     const debt = Number(student.total_debt) || 0;
     debtAmount.textContent = fmt(debt);
-    debtBox.classList.toggle('zero-debt', debt <= 0);
+    
+    if (debt <= 0) {
+      debtBox.classList.add('zero-debt');
+      if (payDebtForm) payDebtForm.classList.add('hidden'); // إخفاء فورم التسديد لو مفيش دين
+    } else {
+      debtBox.classList.remove('zero-debt');
+      if (payDebtForm) payDebtForm.classList.remove('hidden'); // إظهاره لو في دين
+    }
 
     // تفصيل المديونية: كل حصة سابقة لم تُدفع بالكامل (تاريخ - مجموعة - متبقي)
     const debtDetailsWrap = node.querySelector('[data-role="debtDetailsWrap"]');
@@ -1380,6 +1399,40 @@ function initStudentsListDelegation() {
 
     if (action === 'save') {
       await saveCardRecord(card, studentId);
+    } else if (action === 'payDebtQuick') {
+      // ===== تسديد جزء من الدين الساق =====
+      const payInput = card.querySelector('[data-field="payDebtAmount"]');
+      const payAmount = Number(payInput.value) || 0;
+      
+      if (payAmount <= 0) {
+        toast('⚠️ أدخل مبلغاً صحيحاً لتسديده', 'error');
+        return;
+      }
+      
+      const currentDebt = Number(DB.getStudentById(studentId)?.total_debt) || 0;
+      if (payAmount > currentDebt) {
+        toast('⚠️ المبلغ المدخل أكبر من المديونية الحالية! قلل المبلغ.', 'error');
+        return;
+      }
+
+      const ok = await askConfirm('تأكيد التسديد؟', `هل تريد تسديد مبلغ ${fmt(payAmount)} جنيه من مديونية الطالب السابقة؟`);
+      if (!ok) return;
+
+      // خصم الدين من رصيد الطالب (بالسالب عشان يقلل المديونية)
+      await DB.adjustStudentDebt(studentId, -payAmount);
+      
+      // تسجيل الدفعة في الخزنة عشان تُحسب في الأرباح
+      await DB.addPayment({
+        studentId: studentId,
+        amount: payAmount,
+        secretaryId: session?.id || null,
+        notes: 'سداد مديونية سابقة من الاستقبال',
+      });
+
+      toast(`✅ تم تسديد ${fmt(payAmount)} جنيه من المديونية بنجاح`, 'success');
+      payInput.value = '';
+      if (currentPage === 'finance') renderFinancePage();
+      renderStudentsList(); // إعادة رسم الكارت عشان الدين الجديد يظهر
     }
   });
 

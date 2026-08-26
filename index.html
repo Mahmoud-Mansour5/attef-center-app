@@ -529,14 +529,22 @@
         <div class="tags">
           <span class="tag tag-id">#<span class="s-id"></span></span>
           <span class="tag tag-group"></span>
+          <span class="tag tag-subjects-count" style="background: rgba(63, 111, 176, 0.15); color: var(--info);"></span>
         </div>
       </div>
       <span class="status-chip" data-role="statusPill">جديد</span>
     </div>
 
-    <div class="debt-alert-box debt-alert-box-big" data-role="debtBox" id="studentTotalDebtBox">
-      <span class="debt-icon">⚠️</span>
-      <span class="debt-text">إجمالي المديونية الكلية: <b data-role="debtAmount">0</b> جنيه</span>
+    <div class="debt-alert-box debt-alert-box-big" style="display: flex; flex-direction: column; align-items: stretch; gap: 10px;" data-role="debtBox" id="studentTotalDebtBox">
+      <div style="display: flex; align-items: center; gap: 10px; width: 100%;">
+        <span class="debt-icon">⚠️</span>
+        <span class="debt-text">المديونية الكلية: <b data-role="debtAmount">0</b> جنيه</span>
+      </div>
+      <!-- خانة تسديد جزء من المديونية -->
+      <div data-role="payDebtForm" style="display: flex; gap: 8px; width: 100%; margin-top: 5px;">
+        <input type="text" inputmode="numeric" class="field" data-field="payDebtAmount" placeholder="المبلغ المُسدد الآن..." style="flex: 1; padding: 8px; border-color: rgba(213,72,74,0.4); background: #fff; color: #000;">
+        <button class="primary-btn" data-action="payDebtQuick" style="padding: 8px 14px; background: linear-gradient(160deg, #34ad78, #1f7d55); white-space: nowrap;">💸 تسديد</button>
+      </div>
     </div>
 
     <div class="debt-details-wrap hidden" data-role="debtDetailsWrap">
