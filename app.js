@@ -1250,15 +1250,32 @@ function renderStudentsList(filterOverride) {
     const debtBox = node.querySelector('[data-role="debtBox"]');
     const debtAmount = node.querySelector('[data-role="debtAmount"]');
     const payDebtForm = node.querySelector('[data-role="payDebtForm"]');
+    const payDebtInput = node.querySelector('[data-field="payDebtAmount"]');
+    const payDebtBtn = node.querySelector('[data-action="payDebtQuick"]');
     const debt = Number(student.total_debt) || 0;
+    
     debtAmount.textContent = fmt(debt);
     
     if (debt <= 0) {
       debtBox.classList.add('zero-debt');
-      if (payDebtForm) payDebtForm.classList.add('hidden'); // إخفاء فورم التسديد لو مفيش دين
+      if (payDebtForm) {
+        // نعمله بلور ومبهت ومقفول تماماً
+        payDebtForm.style.opacity = '0.4';
+        payDebtForm.style.pointerEvents = 'none'; 
+        payDebtForm.style.filter = 'grayscale(100%)';
+        if(payDebtInput) payDebtInput.disabled = true;
+        if(payDebtBtn) payDebtBtn.disabled = true;
+      }
     } else {
       debtBox.classList.remove('zero-debt');
-      if (payDebtForm) payDebtForm.classList.remove('hidden'); // إظهاره لو في دين
+      if (payDebtForm) {
+        // نرجعه لشكله الطبيعي والنشط
+        payDebtForm.style.opacity = '1';
+        payDebtForm.style.pointerEvents = 'auto';
+        payDebtForm.style.filter = 'none';
+        if(payDebtInput) payDebtInput.disabled = false;
+        if(payDebtBtn) payDebtBtn.disabled = false;
+      }
     }
 
     // تفصيل المديونية: كل حصة سابقة لم تُدفع بالكامل (تاريخ - مجموعة - متبقي)
