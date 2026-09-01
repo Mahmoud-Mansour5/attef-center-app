@@ -1855,8 +1855,8 @@ function renderTeacherStudentsList(groupId) {
     const isAbsent = existing?.attendance === 'absent'; // فحص الغياب
 
     if (existing) {
-      node.querySelector('[data-field="homeworkMax"]').value = existing.homework_out_of ?? 20;
-      node.querySelector('[data-field="examMax"]').value = existing.exam_out_of ?? 20;
+      node.querySelector('[data-field="homeworkMax"]').value = existing.homework_out_of ?? 10;
+      node.querySelector('[data-field="examMax"]').value = existing.exam_out_of ?? 10;
       node.querySelector('[data-field="homeworkGrade"]').value = existing.homework_grade ?? '';
       node.querySelector('[data-field="examGrade"]').value = existing.exam_grade ?? '';
       node.querySelector('[data-field="notes"]').value = existing.teacher_notes ?? '';
@@ -1884,9 +1884,9 @@ function initTeacherPortalDelegation() {
     const record = await DB.submitTeacherReport(studentId, {
       groupId,
       examGrade: card.querySelector('[data-field="examGrade"]').value || null,
-      examOutOf: Number(card.querySelector('[data-field="examMax"]').value) || 20,
+      examOutOf: Number(card.querySelector('[data-field="examMax"]').value) || 10,
       homeworkGrade: card.querySelector('[data-field="homeworkGrade"]').value || null,
-      homeworkOutOf: Number(card.querySelector('[data-field="homeworkMax"]').value) || 20,
+      homeworkOutOf: Number(card.querySelector('[data-field="homeworkMax"]').value) || 10,
       notes: card.querySelector('[data-field="notes"]').value,
       teacherName: session?.full_name || 'المدرس',
     });
@@ -1913,9 +1913,9 @@ function initTeacherPortalDelegation() {
       const result = await DB.submitTeacherReport(studentId, {
         groupId,
         examGrade: card.querySelector('[data-field="examGrade"]').value || null,
-        examOutOf: Number(card.querySelector('[data-field="examMax"]').value) || 20,
+        examOutOf: Number(card.querySelector('[data-field="examMax"]').value) || 10,
         homeworkGrade: card.querySelector('[data-field="homeworkGrade"]').value || null,
-        homeworkOutOf: Number(card.querySelector('[data-field="homeworkMax"]').value) || 20,
+        homeworkOutOf: Number(card.querySelector('[data-field="homeworkMax"]').value) || 10,
         notes: card.querySelector('[data-field="notes"]').value,
         teacherName: session?.full_name || 'المدرس',
       });
