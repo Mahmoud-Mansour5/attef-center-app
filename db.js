@@ -475,12 +475,18 @@ const DB = (() => {
         payment_status: record.paymentStatus ?? existing?.payment_status ?? 'unpaid',
       };
 
-      let data, error;
-      if (existing) {
-        ({ data, error } = await supabaseClient.from('daily_records').update(payload).eq('id', existing.id).select().single());
-      } else {
-        ({ data, error } = await supabaseClient.from('daily_records').insert(payload).select().single());
-      }
+      // لو الحضور اتغيّر فعلياً عن القيمة القديمة، لازم السجل يرجع لطابور إرسال n8n تاني
+      // (وإلا الرسالة الغلط بتفضل هي الوحيدة اللي وصلت لولي الأمر ولا يترسلش تصحيح أبداً)
+      const attendanceChanged = existing && payload.attendance !== existing.attendance;
+      if (attendanceChanged) payload.is_sent = false;
+
+      // upsert حقيقي على مستوى قاعدة البيانات معتمد على القيد الفريد
+      // (student_id, group_id, session_date) بدل الاعتماد على الـ cache المحلي لتحديد
+      // insert ولا update — ده اللي بيقفل الـ race condition ويمنع تكرار السجلات
+      const { data, error } = await supabaseClient
+        .from('daily_records')
+        .upsert(payload, { onConflict: 'student_id,group_id,session_date' })
+        .select().single();
       if (error) return logErr('saveRecord', error);
 
       const idx = cache.dailyRecords.findIndex(r => r.id === data.id);

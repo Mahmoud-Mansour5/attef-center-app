@@ -1861,12 +1861,37 @@ function renderTeacherStudentsList(groupId) {
       node.querySelector('[data-field="examGrade"]').value = existing.exam_grade ?? '';
       node.querySelector('[data-field="notes"]').value = existing.teacher_notes ?? '';
 
-      // إغلاق الخانات إذا كان الطالب غائباً لمنع الخطأ
-      if (isAbsent) {
-        node.querySelector('[data-field="homeworkGrade"]').disabled = true;
-        node.querySelector('[data-field="examGrade"]').disabled = true;
-        node.querySelector('[data-field="notes"]').disabled = true;
-        node.querySelector('[data-field="notes"]').value = 'الطالب غائب (مغلق)';
+      // سحب حالة الاعتماد وحالة الغياب
+      const isApproved = existing.is_approved;
+      const isAbsent = existing.attendance === 'absent';
+
+      // لو السجل تم اعتماده، أو الطالب متسجل غياب (حتى لو لسه معتمدش)، نقفل الكارت
+      if (isApproved || isAbsent) {
+        
+        // 1. إخفاء فورم الدرجات والملاحظات بالكامل
+        const studentForm = node.querySelector('.student-form');
+        if (studentForm) studentForm.classList.add('hidden');
+
+        // 2. إخفاء زر الحفظ
+        const saveBtn = node.querySelector('[data-action="saveGrades"]');
+        if (saveBtn) saveBtn.classList.add('hidden');
+
+        // 3. تغيير البادج ليوضح للمدرس حالة الكارت بدقة
+        const pill = node.querySelector('[data-role="statusPill"]');
+        if (pill) {
+            if (isApproved) {
+                pill.textContent = '🔒 مُعتمد ومغلق';
+                pill.style.background = 'var(--success-bg)';
+                pill.style.color = 'var(--success)';
+            } else {
+                pill.textContent = '❌ غائب ومغلق';
+                pill.style.background = 'var(--danger-bg)';
+                pill.style.color = 'var(--danger)';
+            }
+        }
+
+        // 4. جعل الكارت باهتاً ليوضح أنه غير مفعل
+        card.style.opacity = '0.6';
       }
     }
     list.appendChild(node);
