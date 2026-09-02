@@ -1835,9 +1835,10 @@ function renderTeacherStudentsList(groupId) {
   }
   list.innerHTML = '';
   $('#teacherNoResults').classList.toggle('hidden', students.length > 0);
-  $('#teacherSubmitAllBtn').classList.toggle('hidden', students.length === 0);
 
   const template = $('#teacherStudentCardTemplate');
+  let unapprovedCount = 0; // العداد اللي هيراقب الكروت المفتوحة
+
   students.forEach(student => {
     const node = template.content.cloneNode(true);
     const card = node.querySelector('.student-card');
@@ -1896,6 +1897,9 @@ function renderTeacherStudentsList(groupId) {
     }
     list.appendChild(node);
   });
+
+  // إخفاء زرار "إرسال التقرير" لو كل الكروت مقفولة
+  $('#teacherSubmitAllBtn').classList.toggle('hidden', unapprovedCount === 0);
 }
 function initTeacherPortalDelegation() {
   $('#teacherStudentsList').addEventListener('click', async (e) => {
@@ -1929,11 +1933,15 @@ function initTeacherPortalDelegation() {
     if (!ok) return;
 
     // 1. حفظ درجات الطلاب الظاهرين حالياً في شاشة البحث
-    // 1. حفظ درجات الطلاب الظاهرين حالياً في شاشة البحث
     const currentCards = $$('#teacherStudentsList .student-card');
     let failedCount = 0; // العدّاد الجديد
 
     for (const card of currentCards) {
+      // 🚀 حماية الكروت المقفولة: تخطي أي كارت الفورم بتاعه مخفي (معتمد أو غايب)
+      if (card.querySelector('.student-form.hidden')) {
+          continue; 
+      }
+
       const studentId = card.dataset.id;
       const result = await DB.submitTeacherReport(studentId, {
         groupId,
