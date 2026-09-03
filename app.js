@@ -1837,7 +1837,6 @@ function renderTeacherStudentsList(groupId) {
   $('#teacherNoResults').classList.toggle('hidden', students.length > 0);
 
   const template = $('#teacherStudentCardTemplate');
-  let unapprovedCount = 0; // العداد اللي هيراقب الكروت المفتوحة
 
   students.forEach(student => {
     const node = template.content.cloneNode(true);
@@ -1898,8 +1897,10 @@ function renderTeacherStudentsList(groupId) {
     list.appendChild(node);
   });
 
-  // إخفاء زرار "إرسال التقرير" لو كل الكروت مقفولة
-  $('#teacherSubmitAllBtn').classList.toggle('hidden', unapprovedCount === 0);
+  // إخفاء زرار "إرسال التقرير" لو كل الكروت مقفولة — بيتحسب مباشرة من عدد
+  // كروت .student-form الظاهرة فعلياً على الشاشة، مش من عداد منفصل ممكن يتنسى تحديثه
+  const openCards = list.querySelectorAll('.student-form:not(.hidden)').length;
+  $('#teacherSubmitAllBtn').classList.toggle('hidden', openCards === 0);
 }
 function initTeacherPortalDelegation() {
   $('#teacherStudentsList').addEventListener('click', async (e) => {
